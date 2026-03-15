@@ -32,6 +32,7 @@ use App\Http\Requests\ProductAddRequest;
 use App\Http\Requests\ProductUpdateRequest;
 use App\Repositories\DigitalProductPublishingHouseRepository;
 use App\Repositories\TranslationRepository;
+use App\Services\ProductImportService;
 use App\Services\ProductService;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
@@ -736,7 +737,7 @@ class ProductController extends BaseController
         return view(Product::BULK_IMPORT[VIEW]);
     }
 
-    public function importBulkProduct(Request $request, ProductService $service): RedirectResponse
+    public function importBulkProduct(Request $request, ProductImportService $service): RedirectResponse
     {
         $dataArray = $service->getImportBulkProductData(request: $request, addedBy: 'seller');
         if (!$dataArray['status']) {
