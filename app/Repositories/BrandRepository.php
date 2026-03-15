@@ -39,9 +39,8 @@ class BrandRepository implements BrandRepositoryInterface
     public function getListWhere(array $orderBy=[], string $searchValue = null, array $filters = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, int $offset = null): Collection|LengthAwarePaginator
     {
         $query = $this->brand
-            ->withCount('brandAllProducts')->with(['brandAllProducts'=> function($query){
-                $query->withCount('orderDetails');
-            }])->when($searchValue, function ($query) use($searchValue){
+            ->withCount(['brandAllProducts', 'orderDetails'])
+            ->when($searchValue, function ($query) use($searchValue){
                 $query->Where('name', 'like', "%$searchValue%")->orWhere('id', $searchValue);
             })
             ->when(isset($filters['name']), function ($query) use($filters) {
@@ -61,9 +60,8 @@ class BrandRepository implements BrandRepositoryInterface
     public function getListWhereIn(array $orderBy = [], string $searchValue = null, array $filters = [], array $whereIn = [], array $relations = [], array $nullFields = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, int $offset = null): Collection|LengthAwarePaginator
     {
         $query = $this->brand
-            ->withCount('brandAllProducts')->with(['brandAllProducts'=> function($query){
-                $query->withCount('orderDetails');
-            }])->when($searchValue, function ($query) use($searchValue){
+            ->withCount(['brandAllProducts', 'orderDetails'])
+            ->when($searchValue, function ($query) use($searchValue){
                 $query->Where('name', 'like', "%$searchValue%")->orWhere('id', $searchValue);
             })
             ->when(isset($filters['name']), function ($query) use($filters) {

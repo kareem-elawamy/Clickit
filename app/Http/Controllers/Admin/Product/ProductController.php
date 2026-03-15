@@ -790,12 +790,30 @@ class ProductController extends BaseController
             $filters['added_by'] = ($request['vendor_id'] == 'in_house' || $request['added_by'] == 'in_house') ? 'in_house' : '';
         }
         $products = $this->productRepo->getListWhere(orderBy: ['id' => 'desc'], searchValue: $request['searchValue'], filters: $filters, dataLimit: getWebConfig(name: WebConfigKey::PAGINATION_LIMIT));
-        $products->map(function ($product) {
-            if ($product->product_type == 'physical' && count(json_decode($product->choice_options)) > 0 || count(json_decode($product->colors)) > 0) {
+        $allColorCodes = [];
+        $products->map(function ($product) use (&$allColorCodes) {
+            if ($product->product_type == 'physical' && (count(json_decode($product->choice_options ?? '[]', true) ?? []) > 0 || count(json_decode($product->colors ?? '[]', true) ?? []) > 0)) {
+                $colorsCollection = collect(json_decode($product->colors ?? '[]', true));
+                $allColorCodes = array_merge($allColorCodes, $colorsCollection->toArray());
+            }
+        });
+
+        $allColorCodes = array_unique(array_filter($allColorCodes));
+        
+        $colorNamesMap = [];
+        if (!empty($allColorCodes)) {
+            // PERF-1 Fix: One single query to fetch all required colors instead of N+1
+            $colorNamesMap = \App\Models\Color::whereIn('code', $allColorCodes)->pluck('name', 'code')->toArray();
+        }
+
+        $products->map(function ($product) use ($colorNamesMap) {
+            if ($product->product_type == 'physical' && (count(json_decode($product->choice_options ?? '[]', true) ?? []) > 0 || count(json_decode($product->colors ?? '[]', true) ?? []) > 0)) {
                 $colorName = [];
-                $colorsCollection = collect(json_decode($product->colors));
-                $colorsCollection->map(function ($color) use (&$colorName) {
-                    $colorName[] = $this->colorRepo->getFirstWhere(['code' => $color])->name;
+                $colorsCollection = collect(json_decode($product->colors ?? '[]', true));
+                $colorsCollection->map(function ($color) use (&$colorName, $colorNamesMap) {
+                    if (isset($colorNamesMap[$color])) {
+                        $colorName[] = $colorNamesMap[$color];
+                    }
                 });
                 $product['colorsName'] = $colorName;
             }

@@ -29,7 +29,9 @@ class ProductUpdateRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return true;
+        // SEC-4: Prevent unauthorized access bypass.
+        // Only authenticated admins or sellers can proceed.
+        return auth('admin')->check() || auth('seller')->check();
     }
 
     /**
@@ -46,7 +48,10 @@ class ProductUpdateRequest extends FormRequest
             'category_id' => 'required',
             'product_type' => 'required',
             'digital_product_type' => 'required_if:product_type,==,digital',
-            // 'digital_file_ready' => 'mimes:jpg,jpeg,png,gif,zip,pdf',
+
+            // SEC-2: Whitelist validation for digital file (re-enabled, was commented out)
+            'digital_file_ready' => 'nullable|mimes:jpg,jpeg,png,gif,zip,pdf|max:10240',
+
             'unit' => 'required_if:product_type,==,physical',
             'tax' => 'required|min:0',
             'tax_model' => 'required',
@@ -61,22 +66,36 @@ class ProductUpdateRequest extends FormRequest
                 'max:20',
                 Rule::unique('products', 'code')->ignore($product->id, 'id'),
             ],
+
+            // SEC-2: Whitelist validation for preview file (replaces old blacklist)
+            'preview_file' => 'nullable|mimes:jpg,jpeg,png,gif,zip,pdf|max:10240',
+
+            // SEC-2: Whitelist validation for thumbnail image
+            'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
         ];
     }
 
     public function messages(): array
     {
         return [
-            'name.required' => 'Product name is required!',
-            'category_id.required' => 'category  is required!',
-            'unit.required_if' => 'Unit  is required!',
+            'name.required' => translate('product_name_is_required') . '!',
+            'category_id.required' => translate('category_is_required') . '!',
+            'unit.required_if' => translate('unit_is_required') . '!',
             'code.max' => translate('please_ensure_your_code_does_not_exceed_20_characters'),
             'code.min' => translate('code_with_a_minimum_length_requirement_of_6_characters'),
-            'minimum_order_qty.required' => 'Minimum order quantity is required!',
-            'minimum_order_qty.min' => 'Minimum order quantity must be positive!',
-            // 'digital_file_ready.mimes' => 'Ready product upload must be a file of type: pdf, zip, jpg, jpeg, png, gif.',
-            'digital_product_type.required_if' => 'Digital product type is required!',
-            'shipping_cost.required_if' => 'Shipping Cost is required!',
+            'minimum_order_qty.required' => translate('minimum_order_quantity_is_required') . '!',
+            'minimum_order_qty.min' => translate('minimum_order_quantity_must_be_positive') . '!',
+
+            // SEC-2: Re-enabled whitelist validation messages
+            'digital_file_ready.mimes' => translate('ready_product_upload_must_be_a_file_of_type') . ': pdf, zip, jpg, jpeg, png, gif.',
+            'digital_file_ready.max' => translate('File_size_exceeds_the_maximum_limit_of_10MB') . '!',
+            'preview_file.mimes' => translate('preview_file_must_be_a_file_of_type') . ': pdf, zip, jpg, jpeg, png, gif.',
+            'preview_file.max' => translate('File_size_exceeds_the_maximum_limit_of_10MB') . '!',
+            'image.mimes' => translate('thumbnail_must_be_a_file_of_type') . ': jpg, jpeg, png, webp.',
+            'image.max' => translate('File_size_exceeds_the_maximum_limit_of_5MB') . '!',
+
+            'digital_product_type.required_if' => translate('digital_product_type_is_required') . '!',
+            'shipping_cost.required_if' => translate('shipping_cost_is_required') . '!',
         ];
     }
 
@@ -299,22 +318,8 @@ class ProductUpdateRequest extends FormRequest
                     }
                 }
 
-                if ($this['preview_file']) {
-                    $disallowedExtensions = ['php', 'java', 'js', 'html', 'exe', 'sh'];
-                    $maxFileSize = 10 * 1024 * 1024; // 10 MB in bytes
-                    $extension = $this['preview_file']->getClientOriginalExtension();
-                    $fileSize = $this['preview_file']->getSize();
-
-                    if ($fileSize > $maxFileSize) {
-                        $validator->errors()->add(
-                            'files', translate('File_size_exceeds_the_maximum_limit_of_10MB') . '!'
-                        );
-                    } elseif (in_array($extension, $disallowedExtensions)) {
-                        $validator->errors()->add(
-                            'files', translate('Files_with_extensions_like') . (' .php,.java,.js,.html,.exe,.sh ') . translate('are_not_supported') . '!'
-                        );
-                    }
-                }
+                // SEC-2: The dangerous $disallowedExtensions blacklist logic was completely removed.
+                // File validation is now handled by the whitelist `mimes` and `max` rules above.
             }
         ];
     }

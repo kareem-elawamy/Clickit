@@ -110,8 +110,8 @@ class BrandController extends BaseController
     public function exportList(Request $request): BinaryFileResponse
     {
         $brands = $this->brandRepo->getListWhere(searchValue: $request->get('searchValue'), dataLimit: 'all');
-        $active = $this->brandRepo->getListWhere(filters: ['status' => 1], dataLimit: 'all')->count();
-        $inactive = $this->brandRepo->getListWhere(filters: ['status' => 0], dataLimit: 'all')->count();
+        $active = \App\Models\Brand::where('status', 1)->count();
+        $inactive = \App\Models\Brand::where('status', 0)->count();
         return Excel::download(new BrandListExport(
             [
                 'brands' => $brands,

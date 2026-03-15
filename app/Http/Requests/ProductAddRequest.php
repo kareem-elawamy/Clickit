@@ -20,7 +20,9 @@ class ProductAddRequest extends Request
      */
     public function authorize(): bool
     {
-        return true;
+        // SEC-3: Prevent unauthorized access bypass. 
+        // Only authenticated admins or sellers can proceed.
+        return auth('admin')->check() || auth('seller')->check();
     }
 
     /**
@@ -34,20 +36,27 @@ class ProductAddRequest extends Request
             'name' => 'required',
             'category_id' => 'required',
             'product_type' => 'required',
-            'digital_product_type' => 'required_if' . ':' . 'product_type' . ',==,' . 'digital',
-            // 'digital_file_ready' => 'required_if' . ':' . 'digital_product_type' . ',==,' . 'ready_product' . '|' . 'mimes' . ':jpg,jpeg,png,gif,zip,pdf',
-            'unit' => 'required_if' . ':' . 'product_type' . ',==,' . 'physical',
+            'digital_product_type' => 'required_if:product_type,==,digital',
+            
+            // SEC-1: Re-enabled Whitelist Validation & Added Max Size (10MB)
+            'digital_file_ready' => 'required_if:digital_product_type,==,ready_product|mimes:jpg,jpeg,png,gif,zip,pdf|max:10240',
+            
+            'unit' => 'required_if:product_type,==,physical',
             'tax' => 'required|min:0',
             'tax_model' => 'required',
-            'unit_price' => 'required' . '|' . 'numeric' . '|' . 'gt' . ':0',
-            'discount' => 'required' . '|' . 'gt' . ':-1',
-            'shipping_cost' => 'required_if' . ':' . 'product_type' . ',==,' . 'physical' . '|' . 'gt' . ':-1',
-            'code' => 'required' . '|' . 'regex:/^[a-zA-Z0-9]+$/' . '|' . 'min' . ':6|' . 'max' . ':20|' . 'unique' . ':products',
-            'minimum_order_qty' => 'required' . '|' . 'numeric' . '|' . 'min' . ':1',
+            'unit_price' => 'required|numeric|gt:0',
+            'discount' => 'required|gt:-1',
+            'shipping_cost' => 'required_if:product_type,==,physical|gt:-1',
+            'code' => 'required|regex:/^[a-zA-Z0-9]+$/|min:6|max:20|unique:products',
+            'minimum_order_qty' => 'required|numeric|min:1',
+            
+            // SEC-1: Added Whitelist Validation for preview file instead of the old blacklist
+            'preview_file' => 'nullable|mimes:jpg,jpeg,png,gif,zip,pdf|max:10240',
         ];
 
         if (!isset($this['existing_thumbnail'])) {
-            $rules['image'] = 'required';
+            // Also enforce image whitelisting for the main thumbnail
+            $rules['image'] = 'required|image|mimes:jpg,jpeg,png,webp|max:5120';
         }
 
         return $rules;
@@ -56,17 +65,23 @@ class ProductAddRequest extends Request
     public function messages(): array
     {
         return [
-            'image' . '.' . 'required' => translate('product_thumbnail_is_required!'),
-            'category_id' . '.' . 'required' => translate('category_is_required!'),
-            'unit' . '.' . 'required_if' => translate('unit_is_required!'),
+            'image.required' => translate('product_thumbnail_is_required!'),
+            'category_id.required' => translate('category_is_required!'),
+            'unit.required_if' => translate('unit_is_required!'),
             'code.max' => translate('please_ensure_your_code_does_not_exceed_20_characters'),
             'code.min' => translate('code_with_a_minimum_length_requirement_of_6_characters'),
-            'minimum_order_qty' . '.' . 'required' => translate('minimum_order_quantity_is_required!'),
-            'minimum_order_qty' . '.' . 'min' => translate('minimum_order_quantity_must_be_positive!'),
-            // 'digital_file_ready' . '.' . 'required_if' => translate('ready_product_upload_is_required!'),
-            // 'digital_file_ready' . '.' . 'mimes' => translate('ready_product_upload_must_be_a_file_of_type') . ':' . 'pdf, zip, jpg, jpeg, png, gif.',
-            'digital_product_type' . '.' . 'required_if' => translate('digital_product_type_is_required!'),
-            'shipping_cost' . '.' . 'required_if' => translate('shipping_cost_is_required!')
+            'minimum_order_qty.required' => translate('minimum_order_quantity_is_required!'),
+            'minimum_order_qty.min' => translate('minimum_order_quantity_must_be_positive!'),
+            
+            // SEC-1: Re-enabled and updated validation messages
+            'digital_file_ready.required_if' => translate('ready_product_upload_is_required!'),
+            'digital_file_ready.mimes' => translate('ready_product_upload_must_be_a_file_of_type') . ': pdf, zip, jpg, jpeg, png, gif.',
+            'digital_file_ready.max' => translate('File_size_exceeds_the_maximum_limit_of_10MB') . '!',
+            'preview_file.mimes' => translate('preview_file_must_be_a_file_of_type') . ': pdf, zip, jpg, jpeg, png, gif.',
+            'preview_file.max' => translate('File_size_exceeds_the_maximum_limit_of_10MB') . '!',
+            
+            'digital_product_type.required_if' => translate('digital_product_type_is_required!'),
+            'shipping_cost.required_if' => translate('shipping_cost_is_required!')
         ];
     }
 
@@ -108,7 +123,6 @@ class ProductAddRequest extends Request
                         } else if ($this->has($image)) {
                             $productImagesCount++;
                         }
-
                     }
                     if ($productImagesCount != count($this['colors'])) {
                         $validator->errors()->add(
@@ -117,7 +131,7 @@ class ProductAddRequest extends Request
                     }
                 }
 
-                if ($this['product_type'] == 'physical' && ($this->has('colors') || ($this->has('choice_attributes') && count($this['choice_attributes']) > 0))) {
+                if ($this['product_type'] == 'physical' && ($this->has('colors') || ($this->has('choice_attributes') && count($this->choice_attributes) > 0))) {
                     foreach ($this->all() as $requestKey => $requestValue) {
                         if (str_contains($requestKey, 'sku_')) {
                             if (empty($this[$requestKey])) {
@@ -213,23 +227,8 @@ class ProductAddRequest extends Request
                         }
                     }
                 }
-
-                if ($this['preview_file']) {
-                    $disallowedExtensions = ['php', 'java', 'js', 'html', 'exe', 'sh'];
-                    $maxFileSize = 10 * 1024 * 1024; // 10 MB in bytes
-                    $extension = $this['preview_file']->getClientOriginalExtension();
-                    $fileSize = $this['preview_file']->getSize();
-
-                    if ($fileSize > $maxFileSize) {
-                        $validator->errors()->add(
-                            'files', translate('File_size_exceeds_the_maximum_limit_of_10MB') . '!'
-                        );
-                    } elseif (in_array($extension, $disallowedExtensions)) {
-                        $validator->errors()->add(
-                            'files', translate('Files_with_extensions_like') . (' .php,.java,.js,.html,.exe,.sh ') . translate('are_not_supported') . '!'
-                        );
-                    }
-                }
+                
+                // SEC-1: The dangerous $disallowedExtensions blacklist logic was completely removed from here!
             }
         ];
     }

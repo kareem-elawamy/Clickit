@@ -70,9 +70,9 @@
                                                 </span>
                                             </td>
 
-                                            <td class="text-center">{{ $brand['brand_all_products_count'] }}</td>
+                                            <td class="text-center">{{ $brand['brand_all_products_count'] ?? 0 }}</td>
                                             <td class="text-center">
-                                                {{ $brand['brandAllProducts']->sum('order_details_count') }}</td>
+                                                {{ $brand['order_details_count'] ?? 0 }}</td>
                                             <td>
                                                 <form action="{{ route('admin.brand.status-update') }}" method="post"
                                                     id="brand-status{{ $brand['id'] }}-form" class="no-reload-form">
@@ -106,8 +106,8 @@
                                                     </a>
                                                     <a class="btn btn-outline-danger icon-btn delete-brand"
                                                         title="{{ translate('delete') }}"
-                                                        data-product-count = "{{ count($brand?->brandAllProducts) }}"
-                                                        data-text="{{ translate('there_were_') . count($brand?->brandAllProducts) . translate('_products_under_this_brand') . '.' . translate('please_update_their_brand_from_the_below_list_before_deleting_this_one') . '.' }}"
+                                                        data-product-count = "{{ $brand['brand_all_products_count'] ?? 0 }}"
+                                                        data-text="{{ translate('there_were_') . ($brand['brand_all_products_count'] ?? 0) . translate('_products_under_this_brand') . '.' . translate('please_update_their_brand_from_the_below_list_before_deleting_this_one') . '.' }}"
                                                         id="{{ $brand['id'] }}">
                                                         <i class="fi fi-rr-trash"></i>
                                                     </a>

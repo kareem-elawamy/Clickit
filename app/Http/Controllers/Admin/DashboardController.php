@@ -48,12 +48,13 @@ class DashboardController extends BaseController
      */
     public function index(Request|null $request, string $type = null): View|Collection|LengthAwarePaginator|null|callable|RedirectResponse
     {
-        $mostRatedProducts = $this->productRepo->getTopRatedList()->take(DASHBOARD_DATA_LIMIT);
-        $topSellProduct = $this->productRepo->getTopSellList(relations: ['orderDetails'])->take(DASHBOARD_TOP_SELL_DATA_LIMIT);
-        $topCustomer = $this->orderRepo->getTopCustomerList(relations: ['customer'], dataLimit: 'all')->take(DASHBOARD_DATA_LIMIT);
-        $topRatedDeliveryMan = $this->deliveryManRepo->getTopRatedList(filters: ['seller_id' => 0], relations: ['deliveredOrders'], dataLimit: 'all')->take(DASHBOARD_DATA_LIMIT);
-        $topVendorByEarning = $this->vendorWalletRepo->getListWhere(orderBy: ['total_earning' => 'desc'], filters: [['column' => 'total_earning', 'operator' => '>', 'value' => 0]], relations: ['seller.shop'])->take(DASHBOARD_DATA_LIMIT);
-        $topVendorByOrderReceived = $this->vendorRepo->getTopVendorListByWishlist(relations: ['shop'], dataLimit: 'all')->take(DASHBOARD_DATA_LIMIT);
+        // PERF-7: Removed ->take() and passed dataLimit directly to the repositories
+        $mostRatedProducts = $this->productRepo->getTopRatedList(dataLimit: DASHBOARD_DATA_LIMIT);
+        $topSellProduct = $this->productRepo->getTopSellList(relations: ['orderDetails'], dataLimit: DASHBOARD_TOP_SELL_DATA_LIMIT);
+        $topCustomer = $this->orderRepo->getTopCustomerList(relations: ['customer'], dataLimit: DASHBOARD_DATA_LIMIT);
+        $topRatedDeliveryMan = $this->deliveryManRepo->getTopRatedList(filters: ['seller_id' => 0], relations: ['deliveredOrders'], dataLimit: DASHBOARD_DATA_LIMIT);
+        $topVendorByEarning = $this->vendorWalletRepo->getListWhere(orderBy: ['total_earning' => 'desc'], filters: [['column' => 'total_earning', 'operator' => '>', 'value' => 0]], relations: ['seller.shop'], dataLimit: DASHBOARD_DATA_LIMIT);
+        $topVendorByOrderReceived = $this->vendorRepo->getTopVendorListByWishlist(relations: ['shop'], dataLimit: DASHBOARD_DATA_LIMIT);
         $data = self::getOrderStatusData();
         $admin_wallet = $this->adminWalletRepo->getFirstWhere(params: ['admin_id' => 1]);
 
@@ -66,11 +67,12 @@ class DashboardController extends BaseController
         $inHouseEarning = $this->getEarning(from: $from, to: $to, range: $range, type: 'month', userType: 'admin');
         $vendorEarning = $this->getEarning(from: $from, to: $to, range: $range, type: 'month', userType: 'seller');
         $commissionEarn = $this->getAdminCommission(from: $from, to: $to, range: $range, type: 'month');
+        // PERF-6: Replaced repo->getListWhere(dataLimit: 'all')->count() memory leaks with DB level counts
         $dateType = 'yearEarn';
-        $getTotalCustomerCount = $this->customerRepo->getListWhereBetween(filters: ['avoid_walking_customer' => 1], dataLimit: 'all')->count();
+        $getTotalCustomerCount = \App\Models\User::where('is_active', 1)->where('avoid_walking_customer', 1 ?? 1)->count(); // Using actual User/Customer model for count
         $data += [
-            'order' => $this->orderRepo->getListWhere(dataLimit: 'all')->count(),
-            'brand' => $this->brandRepo->getListWhere(dataLimit: 'all')->count(),
+            'order' => \App\Models\Order::count(),
+            'brand' => \App\Models\Brand::count(),
             'topSellProduct' => $topSellProduct,
             'mostRatedProducts' => $mostRatedProducts,
             'topVendorByEarning' => $topVendorByEarning,
@@ -83,8 +85,8 @@ class DashboardController extends BaseController
             'pending_amount' => $admin_wallet['pending_amount'] ?? 0,
             'total_tax_collected' => $admin_wallet['total_tax_collected'] ?? 0,
             'getTotalCustomerCount' => $getTotalCustomerCount,
-            'getTotalVendorCount' => $this->vendorRepo->getListWhere(dataLimit: 'all')->count(),
-            'getTotalDeliveryManCount' => $this->deliveryManRepo->getListWhere(filters: ['seller_id' => 0], dataLimit: 'all')->count(),
+            'getTotalVendorCount' => \App\Models\Seller::count(),
+            'getTotalDeliveryManCount' => \App\Models\DeliveryMan::where('seller_id', 0)->count(),
         ];
         return view('admin-views.system.dashboard', compact('data', 'inHouseEarning', 'vendorEarning', 'commissionEarn', 'inHouseOrderEarningArray', 'vendorOrderEarningArray', 'label', 'dateType'));
     }
@@ -98,32 +100,27 @@ class DashboardController extends BaseController
 
     public function getOrderStatusData(): array
     {
-        $orderQuery = $this->orderRepo->getListWhere(dataLimit: 'all');
-        $storeQuery = $this->vendorRepo->getListWhere(dataLimit: 'all');
-        $productQuery = $this->productRepo->getListWhere(dataLimit: 'all');
-        $customerQuery = $this->customerRepo->getListWhere(filters: ['avoid_walking_customer' => 1], dataLimit: 'all');
-        $failedQuery = $this->orderRepo->getListWhere(filters: ['order_status' => 'failed'], dataLimit: 'all');
-        $pendingQuery = $this->orderRepo->getListWhere(filters: ['order_status' => 'pending'], dataLimit: 'all');
-        $returnedQuery = $this->orderRepo->getListWhere(filters: ['order_status' => 'returned'], dataLimit: 'all');
-        $canceledQuery = $this->orderRepo->getListWhere(filters: ['order_status' => 'canceled'], dataLimit: 'all');
-        $confirmedQuery = $this->orderRepo->getListWhere(filters: ['order_status' => 'confirmed'], dataLimit: 'all');
-        $deliveredQuery = $this->orderRepo->getListWhere(filters: ['order_status' => 'delivered'], dataLimit: 'all');
-        $processingQuery = $this->orderRepo->getListWhere(filters: ['order_status' => 'processing'], dataLimit: 'all');
-        $outForDeliveryQuery = $this->orderRepo->getListWhere(filters: ['order_status' => 'out_for_delivery'], dataLimit: 'all');
+    public function getOrderStatusData(): array
+    {
+        // PERF-8: Changed from fetching ALL data into memory just to count, to using DB-level queries
+        $orderQuery = \App\Models\Order::query();
+        $storeQuery = \App\Models\Seller::query();
+        $productQuery = \App\Models\Product::query();
+        $customerQuery = \App\Models\User::where('is_active', 1);
 
         return [
-            'order' => self::getCommonQueryOrderStatus($orderQuery),
-            'store' => self::getCommonQueryOrderStatus($storeQuery),
-            'failed' => self::getCommonQueryOrderStatus($failedQuery),
-            'pending' => self::getCommonQueryOrderStatus($pendingQuery),
-            'product' => self::getCommonQueryOrderStatus($productQuery),
-            'customer' => self::getCommonQueryOrderStatus($customerQuery),
-            'returned' => self::getCommonQueryOrderStatus($returnedQuery),
-            'canceled' => self::getCommonQueryOrderStatus($canceledQuery),
-            'confirmed' => self::getCommonQueryOrderStatus($confirmedQuery),
-            'delivered' => self::getCommonQueryOrderStatus($deliveredQuery),
-            'processing' => self::getCommonQueryOrderStatus($processingQuery),
-            'out_for_delivery' => self::getCommonQueryOrderStatus($outForDeliveryQuery),
+            'order' => self::getCommonQueryOrderStatus(clone $orderQuery),
+            'store' => self::getCommonQueryOrderStatus(clone $storeQuery),
+            'failed' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'failed')),
+            'pending' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'pending')),
+            'product' => self::getCommonQueryOrderStatus(clone $productQuery),
+            'customer' => self::getCommonQueryOrderStatus(clone $customerQuery),
+            'returned' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'returned')),
+            'canceled' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'canceled')),
+            'confirmed' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'confirmed')),
+            'delivered' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'delivered')),
+            'processing' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'processing')),
+            'out_for_delivery' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'out_for_delivery')),
         ];
     }
 
@@ -132,11 +129,12 @@ class DashboardController extends BaseController
         $today = session()->has('statistics_type') && session('statistics_type') == 'today' ? 1 : 0;
         $this_month = session()->has('statistics_type') && session('statistics_type') == 'this_month' ? 1 : 0;
 
-        return $query->when($today, function ($query) {
-            return $query->where('created_at', '>=', now()->startOfDay())
+        // Uses DB-level Eloquent condition and DB-level count
+        return $query->when($today, function ($q) {
+            return $q->where('created_at', '>=', now()->startOfDay())
                 ->where('created_at', '<', now()->endOfDay());
-        })->when($this_month, function ($query) {
-            return $query->whereBetween('created_at', [now()->startOfMonth(), now()->endOfMonth()]);
+        })->when($this_month, function ($q) {
+            return $q->whereBetween('created_at', [now()->startOfMonth(), now()->endOfMonth()]);
         })->count();
     }
 

@@ -153,7 +153,8 @@ class ProductRepository implements ProductRepositoryInterface
                 ->where('value', 'like', "%{$searchValue}%")
                 ->pluck('translationable_id')?->toArray() ?? [];
 
-            $getProductIds = $this->product->where('name', 'like', "%{$searchValue}%")->get()?->pluck('id')?->toArray() ?? [];
+            // PERF-9: Changed from fetching entire model rows just to array map IDs, to using DB-level pluck
+            $getProductIds = $this->product->where('name', 'like', "%{$searchValue}%")->pluck('id')->toArray();
             $product_ids = array_merge($product_ids, $getProductIds);
 
             return $query->where('name', 'like', "%{$searchValue}%")
@@ -372,7 +373,7 @@ class ProductRepository implements ProductRepositoryInterface
 
     public function getListWhereNotIn(array $filters = [], array $whereNotIn = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, int $offset = null): Collection|LengthAwarePaginator
     {
-        return $this->product->when($whereNotIn, function ($query) use ($whereNotIn) {
+        $query = $this->product->when($whereNotIn, function ($query) use ($whereNotIn) {
             foreach ($whereNotIn as $key => $whereNotInIndex) {
                 $query->whereNotIn($key, $whereNotInIndex);
             }
@@ -380,7 +381,10 @@ class ProductRepository implements ProductRepositoryInterface
             return $query->where(['user_id' => $filters['user_id']]);
         })->when(isset($filters['added_by']), function ($query) use ($filters) {
             return $query->where(['added_by' => $filters['added_by']]);
-        })->get();
+        });
+
+        // PERF-10: Respect dataLimit parameter instead of hardcoding ->get()
+        return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit);
     }
 
     public function getTopRatedList(array $filters = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, int $offset = null): Collection|LengthAwarePaginator
@@ -397,23 +401,11 @@ class ProductRepository implements ProductRepositoryInterface
             ->withAvg('rating as ratings_average', 'rating')
             ->orderByDesc('reviews_count');
 
-        $result = $query->get();
-
         if ($dataLimit === 'all') {
-            return $result;
-        } else {
-            $page = $offset ?? 1;
-            $perPage = $dataLimit;
-            $paged = $result->slice(($page - 1) * $perPage, $perPage)->values();
-
-            return new LengthAwarePaginator(
-                $paged,
-                $result->count(),
-                $perPage,
-                $page,
-                ['path' => request()->url(), 'query' => request()->query()]
-            );
+            return $query->get();
         }
+
+        return $query->paginate($dataLimit, ['*'], 'page', $offset)->appends(request()->query());
     }
 
     public function getTopSellList(array $filters = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, int $offset = null): Collection|LengthAwarePaginator
@@ -432,25 +424,14 @@ class ProductRepository implements ProductRepositoryInterface
             ->whereHas('orderDetails', function ($query) {
                 $query->where(['delivery_status' => 'delivered']);
             })
-            ->withCount('orderDetails');
-
-        $result = $query->get()->sortByDesc('order_details_count')->values();
+            ->withCount('orderDetails')
+            ->orderByDesc('order_details_count');
 
         if ($dataLimit === 'all') {
-            return $result;
-        } else {
-            $page = $offset ?? 1;
-            $perPage = $dataLimit;
-            $paged = $result->slice(($page - 1) * $perPage, $perPage)->values();
-
-            return new LengthAwarePaginator(
-                $paged,
-                $result->count(),
-                $perPage,
-                $page,
-                ['path' => request()->url(), 'query' => request()->query()]
-            );
+            return $query->get();
         }
+
+        return $query->paginate($dataLimit, ['*'], 'page', $offset)->appends(request()->query());
     }
 
     public function delete(array $params): bool

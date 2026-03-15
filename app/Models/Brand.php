@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Support\Facades\App;
 
 /**
@@ -57,6 +58,11 @@ class Brand extends Model
     public function translations(): MorphMany
     {
         return $this->morphMany('App\Models\Translation', 'translationable');
+    }
+
+    public function orderDetails(): HasManyThrough
+    {
+        return $this->hasManyThrough(OrderDetail::class, Product::class, 'brand_id', 'product_id');
     }
 
     public function getNameAttribute($name): string|null
