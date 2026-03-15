@@ -36,9 +36,7 @@ class DashboardController extends BaseController
         private readonly VendorWalletRepositoryInterface     $vendorWalletRepo,
         private readonly RestockProductRepositoryInterface   $restockProductRepo,
         private readonly DashboardService                    $dashboardService,
-    )
-    {
-    }
+    ) {}
 
     /**
      * @param Request|null $request
@@ -69,7 +67,7 @@ class DashboardController extends BaseController
         $commissionEarn = $this->getAdminCommission(from: $from, to: $to, range: $range, type: 'month');
         // PERF-6: Replaced repo->getListWhere(dataLimit: 'all')->count() memory leaks with DB level counts
         $dateType = 'yearEarn';
-        $getTotalCustomerCount = \App\Models\User::where('is_active', 1)->where('avoid_walking_customer', 1 ?? 1)->count(); // Using actual User/Customer model for count
+        $getTotalCustomerCount = \App\Models\User::where('is_active', 1)->count();
         $data += [
             'order' => \App\Models\Order::count(),
             'brand' => \App\Models\Brand::count(),
@@ -98,11 +96,26 @@ class DashboardController extends BaseController
         return response()->json(['view' => view('admin-views.partials._dashboard-order-status', compact('data'))->render()], 200);
     }
 
+
     public function getOrderStatusData(): array
     {
-    public function getOrderStatusData(): array
-    {
-        // PERF-8: Changed from fetching ALL data into memory just to count, to using DB-level queries
+        $today = session()->has('statistics_type') && session('statistics_type') == 'today';
+        $this_month = session()->has('statistics_type') && session('statistics_type') == 'this_month';
+
+        // 1. الضربة القاضية: استعلام واحد مجمع لكل حالات الطلبات
+        $orderStatuses = \App\Models\Order::query()
+            ->when($today, function ($q) {
+                return $q->whereDate('created_at', now());
+            })
+            ->when($this_month, function ($q) {
+                return $q->whereBetween('created_at', [now()->startOfMonth(), now()->endOfMonth()]);
+            })
+            ->select('order_status', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+            ->groupBy('order_status')
+            ->pluck('total', 'order_status')
+            ->toArray();
+
+        // 2. الاستعلامات الأساسية لباقي الكيانات
         $orderQuery = \App\Models\Order::query();
         $storeQuery = \App\Models\Seller::query();
         $productQuery = \App\Models\Product::query();
@@ -111,16 +124,18 @@ class DashboardController extends BaseController
         return [
             'order' => self::getCommonQueryOrderStatus(clone $orderQuery),
             'store' => self::getCommonQueryOrderStatus(clone $storeQuery),
-            'failed' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'failed')),
-            'pending' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'pending')),
             'product' => self::getCommonQueryOrderStatus(clone $productQuery),
             'customer' => self::getCommonQueryOrderStatus(clone $customerQuery),
-            'returned' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'returned')),
-            'canceled' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'canceled')),
-            'confirmed' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'confirmed')),
-            'delivered' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'delivered')),
-            'processing' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'processing')),
-            'out_for_delivery' => self::getCommonQueryOrderStatus((clone $orderQuery)->where('order_status', 'out_for_delivery')),
+
+            // 3. قراءة الأرقام من المصفوفة المجمعة (صفر استعلامات إضافية هنا!)
+            'failed' => $orderStatuses['failed'] ?? 0,
+            'pending' => $orderStatuses['pending'] ?? 0,
+            'returned' => $orderStatuses['returned'] ?? 0,
+            'canceled' => $orderStatuses['canceled'] ?? 0,
+            'confirmed' => $orderStatuses['confirmed'] ?? 0,
+            'delivered' => $orderStatuses['delivered'] ?? 0,
+            'processing' => $orderStatuses['processing'] ?? 0,
+            'out_for_delivery' => $orderStatuses['out_for_delivery'] ?? 0,
         ];
     }
 
@@ -238,8 +253,8 @@ class DashboardController extends BaseController
 
     public function getRealTimeActivities(): JsonResponse
     {
-        $newOrder = $this->orderRepo->getListWhere(filters: ['checked' => 0], dataLimit: 'all')->count();
-        $restockProductList = $this->restockProductRepo->getListWhere(filters: ['added_by' => 'in_house'], dataLimit: 'all')->groupBy('product_id');
+        $newOrder = \App\Models\Order::where('checked', 0)->count();
+        $restockProductList = \App\Models\RestockProduct::where('added_by', 'in_house')->select('product_id')->groupBy('product_id')->get();
         $restockProduct = [];
         if (count($restockProductList) == 1) {
             $products = $this->restockProductRepo->getListWhere(orderBy: ['updated_at' => 'desc'], filters: ['added_by' => 'in_house'], relations: ['product'], dataLimit: 'all');

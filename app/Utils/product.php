@@ -105,7 +105,6 @@ if (!function_exists('getPriceRangeWithDiscount')) {
                 $discountAmount = getProductPriceByType(product: $product, type: 'discounted_amount', result: 'value', price: $productUnitPrice);
                 $productDiscountedPrice = webCurrencyConverter(amount: $productUnitPrice - $discountAmount);
                 return '<span class="discounted-unit-price fs-24 font-bold">' . $productDiscountedPrice . '</span>' . '<del class="product-total-unit-price align-middle text-muted fs-18 font-semibold">' . webCurrencyConverter(amount: $productUnitPrice) . '</del>';
-
             } elseif ($product->discount > 0) {
                 $productDiscountedPrice = webCurrencyConverter(amount: $productUnitPrice - getProductDiscount(product: $product, price: $productUnitPrice));
                 return '<span class="discounted-unit-price fs-24 font-bold">' . $productDiscountedPrice . '</span>' . '<del class="product-total-unit-price align-middle text-muted fs-18 font-semibold">' . webCurrencyConverter(amount: $productUnitPrice) . '</del>';
@@ -126,41 +125,41 @@ if (!function_exists('getRatingCount')) {
 if (!function_exists('units')) {
     function units(): array
     {
-        return ['kg', 'pc', 'gms', 'ltrs','pair','oz','lb'];
+        return ['kg', 'pc', 'gms', 'ltrs', 'pair', 'oz', 'lb'];
     }
 }
 
 if (!function_exists('getVendorProductsCount')) {
-    function getVendorProductsCount(string $type):int
+    function getVendorProductsCount(string $type): int
     {
-        $products = \Illuminate\Support\Facades\DB::table('products')->where(['added_by'=>'seller'])->get();
+        $query = \Illuminate\Support\Facades\DB::table('products')->where(['added_by' => 'seller']);
         return match ($type) {
-            'new-product' => $products->where('request_status', 0)->count(),
-            'product-updated-request' => $products->whereNotNull('is_shipping_cost_updated')->where('is_shipping_cost_updated', 0)->count(),
-            'approved' => $products->where('request_status', 1)->count(),
-            'denied' => $products->where('request_status', 2)->where('status' , 0)->count(),
-        };
-    }
-}
-if (!function_exists('getAdminProductsCount')) {
-    function getAdminProductsCount(string $type):int
-    {
-        $products = \Illuminate\Support\Facades\DB::table('products')->where(['added_by'=>'admin'])->get();
-        return match ($type) {
-            'all' => $products->count(),
-            'new-product' => $products->where('request_status', 0)->count(),
-            'product-updated-request' => $products->whereNotNull('is_shipping_cost_updated')->where('is_shipping_cost_updated', 0)->count(),
-            'approved' => $products->where('request_status', 1)->count(),
-            'denied' => $products->where('request_status', 2)->where('status' , 0)->count(),
+            'new-product' => $query->where('request_status', 0)->count(),
+            'product-updated-request' => $query->whereNotNull('is_shipping_cost_updated')->where('is_shipping_cost_updated', 0)->count(),
+            'approved' => $query->where('request_status', 1)->count(),
+            'denied' => $query->where('request_status', 2)->where('status', 0)->count(),
         };
     }
 }
 
+if (!function_exists('getAdminProductsCount')) {
+    function getAdminProductsCount(string $type): int
+    {
+        $query = \Illuminate\Support\Facades\DB::table('products')->where(['added_by' => 'admin']);
+        return match ($type) {
+            'all' => $query->count(),
+            'new-product' => $query->where('request_status', 0)->count(),
+            'product-updated-request' => $query->whereNotNull('is_shipping_cost_updated')->where('is_shipping_cost_updated', 0)->count(),
+            'approved' => $query->where('request_status', 1)->count(),
+            'denied' => $query->where('request_status', 2)->where('status', 0)->count(),
+        };
+    }
+}
 
 if (!function_exists('getRestockProductFCMTopic')) {
     function getRestockProductFCMTopic(array|object $restockRequest): string
     {
-        return 'restock_'.$restockRequest['id'].'_product_restock_'.$restockRequest->product_id.'_topic';
+        return 'restock_' . $restockRequest['id'] . '_product_restock_' . $restockRequest->product_id . '_topic';
     }
 }
 
@@ -190,7 +189,7 @@ if (!function_exists('getProductMaxUnitPriceRange')) {
     function getProductMaxUnitPriceRange($type = null): int
     {
         $maxUnitPrice = Cache::remember(CACHE_FOR_PRODUCTS_MAX_UNIT_PRICE, CACHE_FOR_3_HOURS, function () {
-            return Product::all()->max('unit_price');
+            return Product::max('unit_price');
         });
 
         if ($type == 'web') {
@@ -218,7 +217,7 @@ if (!function_exists('getProductMinUnitPriceRange')) {
     function getProductMinUnitPriceRange($type = null): int
     {
         $minUnitPrice = Cache::remember(CACHE_FOR_PRODUCTS_MIN_UNIT_PRICE, CACHE_FOR_3_HOURS, function () {
-            return Product::all()->min('unit_price');
+            return Product::min('unit_price');
         });
 
         if ($type == 'web') {
@@ -250,7 +249,7 @@ if (!function_exists('getProductMinUnitPriceRange')) {
 if (!function_exists('getFeaturedDealsProductList')) {
     function getFeaturedDealsProductList()
     {
-        $cacheKey = 'cache_for_Featured_deals_products_list_'.getDefaultLanguage();
+        $cacheKey = 'cache_for_Featured_deals_products_list_' . getDefaultLanguage();
         $cacheKeys = Cache::get(CACHE_FOR_FEATURED_DEAL_PRODUCTS_LIST, []);
         if (!in_array($cacheKey, $cacheKeys)) {
             $cacheKeys[] = $cacheKey;
@@ -263,7 +262,7 @@ if (!function_exists('getFeaturedDealsProductList')) {
                 ->whereDate('end_date', '>=', date('Y-m-d'))->pluck('id')->first();
             $featuredDealProductIDs = $featuredDealID ? FlashDealProduct::where('flash_deal_id', $featuredDealID)->pluck('product_id')->toArray() : [];
             return ProductManager::getPriorityWiseFeatureDealQuery(
-                query: Product::active()->with(['category', 'clearanceSale' => function($query) {
+                query: Product::active()->with(['category', 'clearanceSale' => function ($query) {
                     return $query->active();
                 }])->whereIn('id', $featuredDealProductIDs),
                 dataLimit: 'all'

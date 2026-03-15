@@ -14,4 +14,5 @@ interface VendorRepositoryInterface extends RepositoryInterface
      * @return Collection|array|LengthAwarePaginator
      */
     public function getByStatusExcept(string $status, array $relations = [], int $paginateBy = DEFAULT_DATA_LIMIT): Collection|array|LengthAwarePaginator;
+    public function getTopVendorListByWishlist(array $filters = [], array $relations = [], int $dataLimit = DEFAULT_DATA_LIMIT): Collection|array|LengthAwarePaginator;
 }

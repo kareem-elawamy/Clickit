@@ -3222,4 +3222,12 @@ return [
 	"demo_reset_alert" => "Demo reset alert",
 	"demo_data_is_being_reset_to_default" => "Demo data is being reset to default",
 	"Order_Details" => "Order Details",
+	"We_are_sorry_server_is_not_responding" => "We are sorry server is not responding",
+	"Try_after_sometime" => "Try after sometime",
+	"copyright_" => "Copyright ",
+	"_we_are_always_happy_to_help" => " we are always happy to help",
+	"Currently_no_product_available_by_this_name" => "Currently no product available by this name",
+	"Walk-In-Customer" => "Walk-In-Customer",
+	"please_add_product_to_cart_before_applying_discount" => "Please add product to cart before applying discount",
+	"please_add_product_to_cart_before_applying_coupon" => "Please add product to cart before applying coupon",
 ];

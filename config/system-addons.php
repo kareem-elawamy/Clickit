@@ -1,14 +1,14 @@
 <?php return array (
-  'admin_panel' =>
+  'admin_panel' => 
   array (
-    'active' => '0',
-    'username' => '',
-    'purchase_key' => '',
+    'active' => '1',
+    'username' => 'Kareem',
+    'purchase_key' => '19ejsdjkgsj-4',
     'software_id' => 'MzE0NDg1OTc=',
-    'domain' => '',
+    'domain' => '127.0.0.1:8000',
     'software_type' => 'product',
   ),
-  'vendor_panel' =>
+  'vendor_panel' => 
   array (
     'active' => '0',
     'username' => '',
@@ -17,7 +17,7 @@
     'domain' => '',
     'software_type' => 'addon',
   ),
-  'user_app' =>
+  'user_app' => 
   array (
     'active' => '0',
     'username' => '',
@@ -26,7 +26,7 @@
     'domain' => '',
     'software_type' => 'addon',
   ),
-  'vendor_app' =>
+  'vendor_app' => 
   array (
     'active' => '0',
     'username' => '',
@@ -35,7 +35,7 @@
     'domain' => '',
     'software_type' => 'addon',
   ),
-  'deliveryman_app' =>
+  'deliveryman_app' => 
   array (
     'active' => '1',
     'username' => '',
@@ -44,7 +44,7 @@
     'domain' => '',
     'software_type' => 'addon',
   ),
-  'theme_lifestyle' =>
+  'theme_lifestyle' => 
   array (
     'active' => '0',
     'username' => '',
