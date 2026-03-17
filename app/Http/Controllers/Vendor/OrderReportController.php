@@ -355,29 +355,22 @@ class OrderReportController extends Controller
     {
         $dateType = $request['date_type'] ?? 'this_year';
 
-        $orders = self::all_order_table_data_filter($request)->latest('updated_at')->get();
+        $ordersQuery = self::all_order_table_data_filter($request);
+        $totalOrders = $ordersQuery->count();
         $seller = auth('seller')->user()->f_name . ' ' . auth('seller')->user()->l_name;
 
-        $totalOrderAmount = $orders->sum('order_amount') ?? 0;
-        $totalProductDiscount = $orders->sum('details_sum_discount') ?? 0;
-        $totalDiscountedAmount = $orders->sum('discount_amount') ?? 0;
-        $totalReferralDiscount = $orders->sum('refer_and_earn_discount') ?? 0;
-        $totalTax = $orders->sum('details_sum_tax') ?? 0;
-        $totalOrderCommission = $orders->sum('admin_commission') ?? 0;
+        $totalOrderAmount = $ordersQuery->sum('order_amount') ?? 0;
+        $totalProductDiscount = $ordersQuery->sum('details_sum_discount') ?? 0;
+        $totalDiscountedAmount = $ordersQuery->sum('discount_amount') ?? 0;
+        $totalReferralDiscount = $ordersQuery->sum('refer_and_earn_discount') ?? 0;
+        $totalTax = $ordersQuery->sum('details_sum_tax') ?? 0;
+        $totalOrderCommission = $ordersQuery->sum('admin_commission') ?? 0;
 
+        $totalCouponDiscount = $ordersQuery->sum(DB::raw('shipping_cost - (CASE WHEN extra_discount_type = "free_shipping_over_order_amount" THEN extra_discount ELSE 0 END)')) ?? 0;
+        $totalDeliveryCharge = $ordersQuery->sum(DB::raw('shipping_cost - (CASE WHEN extra_discount_type = "free_shipping_over_order_amount" THEN extra_discount ELSE 0 END)')) ?? 0;
+        $totalDeliverymanIncentive = $ordersQuery->where('delivery_type', 'self_delivery')->whereNotNull('delivery_man_id')->sum('deliveryman_charge') ?? 0;
 
-        $totalCouponDiscount = 0;
-
-        $orders->map(function ($order) use ($totalCouponDiscount) {
-            $totalCouponDiscount = $totalCouponDiscount + ($order->shipping_cost - ($order->extra_discount_type == 'free_shipping_over_order_amount' ? $order->extra_discount : 0));
-        });
-
-        $totalDeliveryCharge = 0;
-        $totalDeliverymanIncentive = 0;
-        foreach ($orders as $order) {
-            $totalDeliveryCharge += ($order->shipping_cost - ($order->extra_discount_type == 'free_shipping_over_order_amount' ? $order->extra_discount : 0));
-            $totalDeliverymanIncentive += ($order->delivery_type == 'self_delivery' && $order->delivery_man_id) ? $order->deliveryman_charge : 0;
-        }
+        $orders = $ordersQuery->latest('updated_at')->get();
 
         $data = [
             'orders' => $orders,

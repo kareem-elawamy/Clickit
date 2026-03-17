@@ -51,9 +51,10 @@ class VendorWithdrawRequest implements FromView, ShouldAutoSize, WithStyles,With
             'color' => ['rgb' => '063C93'],
         ]);
         $sheet->setShowGridlines(false);
+        $totalCount = $this->data['total_count'] ?? count($this->data['withdraw_request']);
         return [
             // Define the style for cells with data
-            'A1:E'.$this->data['withdraw_request']->count() + 4 => [
+            'A1:E'.($totalCount + 4) => [
                 'borders' => [
                     'allBorders' => [
                         'borderStyle' => Border::BORDER_THIN,
@@ -67,11 +68,12 @@ class VendorWithdrawRequest implements FromView, ShouldAutoSize, WithStyles,With
     {
         return [
             AfterSheet::class => function(AfterSheet $event) {
+                $totalCount = $this->data['total_count'] ?? count($this->data['withdraw_request']);
                 $event->sheet->getStyle('A1:E1') // Adjust the range as per your needs
                     ->getAlignment()
                     ->setHorizontal(Alignment::HORIZONTAL_CENTER)
                     ->setVertical(Alignment::VERTICAL_CENTER);
-                $event->sheet->getStyle('A4:E'.$this->data['withdraw_request']->count() + 4) // Adjust the range as per your needs
+                $event->sheet->getStyle('A4:E'.($totalCount + 4)) // Adjust the range as per your needs
                     ->getAlignment()
                     ->setHorizontal(Alignment::HORIZONTAL_CENTER)
                     ->setVertical(Alignment::VERTICAL_CENTER);
@@ -81,10 +83,10 @@ class VendorWithdrawRequest implements FromView, ShouldAutoSize, WithStyles,With
                     ->setVertical(Alignment::VERTICAL_CENTER);
                 if(isset($this->data['data-from']) && $this->data['data-from'] == 'vendor'){
                     $event->sheet->mergeCells('D4:E4');
-                    $this->data['withdraw_request']->each(function($item,$index) use($event) {
-                        $index+=5;
+                    for ($i = 0; $i < $totalCount; $i++) {
+                        $index = $i + 5;
                         $event->sheet->mergeCells("D$index:E$index");
-                    });
+                    }
                 }
                     $event->sheet->mergeCells('A1:E1');
                     $event->sheet->mergeCells('A2:B2');

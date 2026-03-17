@@ -18,6 +18,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\LazyCollection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Pipeline;
 
 class ProductRepository implements ProductRepositoryInterface
 {
@@ -137,70 +138,28 @@ class ProductRepository implements ProductRepositoryInterface
 
     public function getListWhere(array $orderBy = [], string $searchValue = null, array $filters = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, int $offset = null): Collection|LengthAwarePaginator|LazyCollection
     {
-        $query = $this->product->with($relations)->when(isset($filters['added_by']) && $this->isAddedByInHouse(addedBy: $filters['added_by']), function ($query) {
-            return $query->where(['added_by' => 'admin']);
-        })->when(isset($filters['added_by']) && !$this->isAddedByInHouse($filters['added_by']), function ($query) use ($filters) {
-            return $query->where(['added_by' => 'seller'])
-                ->when(isset($filters['request_status']) && $filters['request_status'] != 'all', function ($query) use ($filters) {
-                    $query->where(['request_status' => $filters['request_status']]);
-                })
-                ->when(isset($filters['seller_id']) && $filters['seller_id'] != 'all', function ($query) use ($filters) {
-                    return $query->where(['user_id' => $filters['seller_id']]);
-                });
-        })->when($searchValue, function ($query) use ($filters, $searchValue) {
-            $product_ids = [];
-            $product_ids = $this->translation->where('translationable_type', 'App\Models\Product')
-                ->where('key', 'name')
-                ->where('value', 'like', "%{$searchValue}%")
-                ->pluck('translationable_id')?->toArray() ?? [];
+        $query = $this->product->with($relations);
 
-            // PERF-9: Changed from fetching entire model rows just to array map IDs, to using DB-level pluck
-            $getProductIds = $this->product->where('name', 'like', "%{$searchValue}%")->pluck('id')->toArray();
-            $product_ids = array_merge($product_ids, $getProductIds);
+        $request = [
+            'query' => $query,
+            'searchValue' => $searchValue,
+            'filters' => $filters
+        ];
 
-            return $query->where('name', 'like', "%{$searchValue}%")
-                ->orWhere(function ($query) use ($filters) {
-                    if (isset($filters['code'])) {
-                        $query->where('code', 'like', "%{$filters['code']}%");
-                    }
-                })
-                ->when(isset($filters['added_by']) && !$this->isAddedByInHouse($filters['added_by']), function ($query) use ($filters, $product_ids) {
-                    $query->when(!empty($product_ids) && count($product_ids) > 0, function ($query) use ($product_ids) {
-                        return $query->whereIn('id', $product_ids);
-                    })
-                        ->where(['added_by' => 'seller'])
-                        ->when(isset($filters['seller_id']), function ($query) use ($filters) {
-                            return $query->where(['user_id' => $filters['seller_id']]);
-                        });
-                })
-                ->when(isset($filters['added_by']) && $this->isAddedByInHouse($filters['added_by']), function ($query) use ($filters, $product_ids) {
-                    $query->when(!empty($product_ids) && count($product_ids) > 0, function ($query) use ($product_ids) {
-                        return $query->orWhereIn('id', $product_ids);
-                    })->where(['added_by' => 'admin']);
-                });
-        })->when(isset($filters['product_search_type']) && $filters['product_search_type'] == 'product_gallery', function ($query) use ($filters) {
-            return $query->when(isset($filters['request_status']) && $filters['request_status'] != 'all', function ($query) use ($filters) {
-                $query->where(['request_status' => $filters['request_status']]);
+        $query = Pipeline::send($request)
+            ->through([
+                \App\Filters\Product\FilterByAddedBy::class,
+                \App\Filters\Product\FilterBySearch::class,
+                \App\Filters\Product\FilterByCategory::class,
+                \App\Filters\Product\FilterByStatusAndBrand::class,
+            ])
+            ->then(function ($request) {
+                return $request['query'];
             });
-        })->when(isset($filters['brand_id']) && $filters['brand_id'] != 'all', function ($query) use ($filters) {
-            return $query->where(['brand_id' => $filters['brand_id']]);
-        })->when(isset($filters['category_id']) && !empty($filters['category_id']) && $filters['category_id'] != 'all', function ($query) use ($filters) {
-            return $query->where(['category_id' => $filters['category_id']]);
-        })->when(isset($filters['sub_category_id']) && !empty($filters['sub_category_id']) && $filters['sub_category_id'] != 'all', function ($query) use ($filters) {
-            return $query->where(['sub_category_id' => $filters['sub_category_id']]);
-        })->when(isset($filters['sub_sub_category_id']) && !empty($filters['sub_sub_category_id']) && $filters['sub_sub_category_id'] != 'all', function ($query) use ($filters) {
-            return $query->where(['sub_sub_category_id' => $filters['sub_sub_category_id']]);
-        })->when(isset($filters['is_shipping_cost_updated']), function ($query) use ($filters) {
-            return $query->where(['is_shipping_cost_updated' => $filters['is_shipping_cost_updated']]);
-        })->when(isset($filters['status']), function ($query) use ($filters) {
-            return $query->where(['status' => $filters['status']]);
-        })->when(isset($filters['code']), function ($query) use ($filters) {
-            return $query->where(['code' => $filters['code']]);
-        })->when(isset($filters['productIds']), function ($query) use ($filters) {
-            return $query->whereIn('id', $filters['productIds']);
-        })->when(!empty($orderBy), function ($query) use ($orderBy) {
+
+        if (!empty($orderBy)) {
             $query->orderBy(array_key_first($orderBy), array_values($orderBy)[0]);
-        });
+        }
 
         $filters += ['searchValue' => $searchValue];
         return $dataLimit == 'all' ? $query->get() : ($dataLimit == 'cursor' ? $query->cursor() : $query->paginate($dataLimit)->appends($filters));
@@ -209,65 +168,36 @@ class ProductRepository implements ProductRepositoryInterface
     public function getListWithScope(array $orderBy = [], string $searchValue = null, string $scope = null, array $filters = [], array $whereIn = [], array $whereNotIn = [], array $relations = [], array $withCount = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, int $offset = null): Collection|LengthAwarePaginator|LazyCollection
     {
         $query = $this->product->with($relations)
-            ->when(isset($withCount['reviews']), function ($query) use ($withCount) {
-                return $query->withCount($withCount['reviews']);
-            })
-            ->when(isset($scope) && $scope == 'active', function ($query) {
-                return $query->active();
-            })
-            ->when($searchValue, function ($query) use ($searchValue) {
-                $product_ids = $this->translation->where('translationable_type', 'App\Models\Product')
-                    ->where('key', 'name')
-                    ->where('value', 'like', "%{$searchValue}%")
-                    ->pluck('translationable_id');
-
-                return $query->where(function ($query) use ($searchValue, $product_ids) {
-                    return $query->where('name', 'like', "%{$searchValue}%")
-                        ->orWhereIn('id', $product_ids);
-                });
-            })
-            ->when(isset($filters['search_from']) && $filters['search_from'] == 'pos', function ($query) use ($filters) {
-                $searchKeyword = str_ireplace(['\'', '"', ',', ';', '<', '>', '?'], ' ', preg_replace('/\s\s+/', ' ', $filters['keywords']));
-                return $query->where(function ($query) use ($filters) {
-                    return $query->where('code', 'like', "%{$filters['keywords']}%")
-                        ->orWhere('name', 'like', "%{$filters['keywords']}%");
-                })
-                    ->orderByRaw("CASE WHEN name LIKE '%{$searchKeyword}%' THEN 1 ELSE 2 END, LOCATE('{$searchKeyword}', name), name");
-            })
-            ->when(isset($filters['added_by']) && $this->isAddedByInHouse(addedBy: $filters['added_by']), function ($query) {
-                return $query->where(['added_by' => 'admin']);
-            })
-            ->when(isset($filters['added_by']) && !$this->isAddedByInHouse($filters['added_by']), function ($query) use ($filters) {
-                return $query->where(['added_by' => 'seller'])
-                    ->when(isset($filters['request_status']), function ($query) use ($filters) {
-                        $query->where(['request_status' => $filters['request_status']]);
-                    })
-                    ->when(isset($filters['seller_id']), function ($query) use ($filters) {
-                        return $query->where(['user_id' => $filters['seller_id']]);
-                    });
-            })
-            ->when(isset($filters['brand_id']), function ($query) use ($filters) {
-                return $query->where(['brand_id' => $filters['brand_id']]);
-            })->when(isset($filters['category_id']), function ($query) use ($filters) {
-                return $query->where(['category_id' => $filters['category_id']]);
-            })->when(isset($filters['sub_category_id']), function ($query) use ($filters) {
-                return $query->where(['sub_category_id' => $filters['sub_category_id']]);
-            })->when(isset($filters['status']), function ($query) use ($filters) {
-                return $query->where(['status' => $filters['status']]);
-            })->when(isset($whereIn), function ($query) use ($whereIn) {
-                foreach ($whereIn as $key => $whereInIndex) {
-                    return $query->whereIn($key, $whereInIndex);
-                }
-            })
-            ->when(isset($filters['sub_sub_category_id']), function ($query) use ($filters) {
-                return $query->where(['sub_sub_category_id' => $filters['sub_sub_category_id']]);
-            })->when($whereNotIn, function ($query) use ($whereNotIn) {
-                foreach ($whereNotIn as $key => $whereNotInIndex) {
-                    $query->whereNotIn($key, $whereNotInIndex);
-                }
-            })->when(!empty($orderBy), function ($query) use ($orderBy) {
-                $query->orderBy(array_key_first($orderBy), array_values($orderBy)[0]);
+            ->when(isset($withCount['reviews']), function ($q) use ($withCount) {
+                return $q->withCount($withCount['reviews']);
             });
+
+        $request = [
+            'query' => $query,
+            'searchValue' => $searchValue,
+            'scope' => $scope,
+            'filters' => $filters,
+            'whereIn' => $whereIn,
+            'whereNotIn' => $whereNotIn
+        ];
+
+        $query = Pipeline::send($request)
+            ->through([
+                \App\Filters\Product\FilterByScope::class,
+                \App\Filters\Product\FilterByAddedBy::class,
+                \App\Filters\Product\FilterBySearch::class,
+                \App\Filters\Product\FilterByPosSearch::class,
+                \App\Filters\Product\FilterByCategory::class,
+                \App\Filters\Product\FilterByStatusAndBrand::class,
+                \App\Filters\Product\FilterByWhere::class,
+            ])
+            ->then(function ($request) {
+                return $request['query'];
+            });
+
+        if (!empty($orderBy)) {
+            $query->orderBy(array_key_first($orderBy), array_values($orderBy)[0]);
+        }
 
         $filters += ['searchValue' => $searchValue];
         return $dataLimit == 'all' ? $query->get() : ($dataLimit == 'cursor' ? $query->cursor() : $query->paginate($dataLimit)->appends($filters));
@@ -276,14 +206,6 @@ class ProductRepository implements ProductRepositoryInterface
     public function getWebListWithScope(array $orderBy = [], string $searchValue = null, string $scope = null, array $filters = [], array $whereHas = [], array $whereIn = [], array $whereNotIn = [], array $relations = [], array $withCount = [], array $withSum = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, int $offset = null): Collection|LengthAwarePaginator|LazyCollection
     {
         $query = $this->product
-            ->when(isset($scope) && $scope == 'active', function ($query) {
-                return $query->active();
-            })
-            ->when(isset($filters['added_by']) && $this->isAddedByInHouse(addedBy: $filters['added_by']), function ($query) {
-                return $query->where(['added_by' => 'admin']);
-            })->when(isset($filters['added_by']) && !$this->isAddedByInHouse($filters['added_by']), function ($query) use ($filters) {
-                return $query->where(['added_by' => 'seller']);
-            })
             ->when(isset($relations['reviews']), function ($query) use ($relations) {
                 return $query->with($relations['reviews'], function ($query) use ($relations) {
                     return $query->active();
@@ -327,34 +249,33 @@ class ProductRepository implements ProductRepositoryInterface
             })
             ->when(isset($withSum['qty']), function ($query) use ($withSum) {
                 return $query->withSum($withSum['qty']);
-            })
-            ->when($searchValue, function ($query) use ($searchValue) {
-                $product_ids = $this->translation->where('translationable_type', 'App\Models\Product')
-                    ->where('key', 'name')
-                    ->where('value', 'like', "%{$searchValue}%")
-                    ->pluck('translationable_id');
-                return $query->where('name', 'like', "%{$searchValue}%")->orWhereIn('id', $product_ids);
-            })->when(isset($filters['seller_id']), function ($query) use ($filters) {
-                return $query->where('user_id', $filters['seller_id']);
-            })->when(isset($filters['brand_id']), function ($query) use ($filters) {
-                return $query->where(['brand_id' => $filters['brand_id']]);
-            })->when(isset($filters['category_id']), function ($query) use ($filters) {
-                return $query->where(['category_id' => $filters['category_id']]);
-            })->when(isset($filters['sub_category_id']), function ($query) use ($filters) {
-                return $query->where(['sub_category_id' => $filters['sub_category_id']]);
-            })->when(isset($whereIn), function ($query) use ($whereIn) {
-                foreach ($whereIn as $key => $whereInIndex) {
-                    return $query->whereIn($key, $whereInIndex);
-                }
-            })->when(isset($filters['sub_sub_category_id']), function ($query) use ($filters) {
-                return $query->where(['sub_sub_category_id' => $filters['sub_sub_category_id']]);
-            })->when($whereNotIn, function ($query) use ($whereNotIn) {
-                foreach ($whereNotIn as $key => $whereNotInIndex) {
-                    $query->whereNotIn($key, $whereNotInIndex);
-                }
-            })->when(!empty($orderBy), function ($query) use ($orderBy) {
-                $query->orderBy(array_key_first($orderBy), array_values($orderBy)[0]);
             });
+
+        $request = [
+            'query' => $query,
+            'searchValue' => $searchValue,
+            'scope' => $scope,
+            'filters' => $filters,
+            'whereIn' => $whereIn,
+            'whereNotIn' => $whereNotIn
+        ];
+
+        $query = Pipeline::send($request)
+            ->through([
+                \App\Filters\Product\FilterByScope::class,
+                \App\Filters\Product\FilterByAddedBy::class,
+                \App\Filters\Product\FilterBySearch::class,
+                \App\Filters\Product\FilterByCategory::class,
+                \App\Filters\Product\FilterByStatusAndBrand::class,
+                \App\Filters\Product\FilterByWhere::class,
+            ])
+            ->then(function ($request) {
+                return $request['query'];
+            });
+
+        if (!empty($orderBy)) {
+            $query->orderBy(array_key_first($orderBy), array_values($orderBy)[0]);
+        }
 
         $filters += ['searchValue' => $searchValue];
         return $dataLimit == 'all' ? $query->get() : ($dataLimit == 'cursor' ? $query->cursor() : $query->paginate($dataLimit)->appends($filters));

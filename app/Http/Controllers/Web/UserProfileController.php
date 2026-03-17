@@ -154,7 +154,7 @@ class UserProfileController extends Controller
         }
 
         if (auth('customer')->check()) {
-            $shippingAddresses = ShippingAddress::where('customer_id', auth('customer')->id())->latest()->get();
+            $shippingAddresses = ShippingAddress::where('customer_id', auth('customer')->id())->latest()->paginate(10);
             return view('web-views.users-profile.account-address', compact('shippingAddresses', 'country_restrict_status', 'zip_restrict_status', 'countries', 'zip_codes', 'countriesName', 'countriesCode'));
         } else {
             return redirect()->route('home');

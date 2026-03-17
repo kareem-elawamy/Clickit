@@ -12,6 +12,7 @@ use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\ShippingMethodRequest;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
+use App\Models\CategoryShippingCost;
 use App\Services\CategoryShippingCostService;
 use App\Services\ShippingMethodService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -62,15 +63,23 @@ class ShippingMethodController extends BaseController
             filters: ['seller_id' => 0],
             dataLimit: 'all',
         )->pluck('category_id')->toArray();
+        // PERF-28: Build bulk insert array to avoid N+1 queries
+        $newShippingCosts = [];
+        $now = now();
         foreach ($allCategoryIds as $id) {
             if (!in_array($id, $allCategoryShippingCostArray)) {
-                $this->categoryShippingCostRepo->add(
-                    data: $this->categoryShippingCostService->getAddCategoryWiseShippingCostData(
-                        addedBy: 'admin',
-                        id: $id
-                    )
+                $data = $this->categoryShippingCostService->getAddCategoryWiseShippingCostData(
+                    addedBy: 'admin',
+                    id: $id
                 );
+                // add timestamps for DB::insert
+                $data['created_at'] = $now;
+                $data['updated_at'] = $now;
+                $newShippingCosts[] = $data;
             }
+        }
+        if (!empty($newShippingCosts)) {
+            CategoryShippingCost::insert($newShippingCosts);
         }
         $adminShipping = $this->shippingTypeRepo->getFirstWhere(
             params: ['seller_id' => 0]

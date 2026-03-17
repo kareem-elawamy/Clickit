@@ -128,10 +128,7 @@ class SellerController extends Controller
 
         $inhouseReviewData = Review::active()->whereIn('product_id', $inhouseProducts->pluck('id'));
         $inhouseReviewDataCount = $inhouseReviewData->count();
-        $inhouseRattingStatusPositive = 0;
-        foreach ($inhouseReviewData->pluck('rating') as $singleRating) {
-            ($singleRating >= 4 ? ($inhouseRattingStatusPositive++) : '');
-        }
+        $inhouseRattingStatusPositive = (clone $inhouseReviewData)->where('rating', '>=', 4)->count();
 
         $inhouseShop = $this->getInHouseShopObject();
         $inhouseShop->id = 0;
@@ -175,8 +172,9 @@ class SellerController extends Controller
 
     }
 
-    public function more_sellers()
+    public function more_sellers(Request $request)
     {
+        $limit = $request->get('limit', 15);
         $topVendorsList = Shop::active()
             ->whereHas('seller', function($query){
                 return $query->whereHas('orders');
@@ -184,10 +182,12 @@ class SellerController extends Controller
             ->with(['seller' => function ($query) {
                 $query->withCount(['orders']);
             }])
-            ->get()
-            ->sortByDesc(function ($shop) {
-                return $shop->seller->orders_count;
-            });
+            ->orderByDesc(\App\Models\Order::selectRaw('count(*)')
+                ->whereColumn('seller_id', 'shops.seller_id')
+                ->where('seller_is', 'seller')
+            )
+            ->take($limit)
+            ->get();
 
         return array_values($topVendorsList->toArray());
     }

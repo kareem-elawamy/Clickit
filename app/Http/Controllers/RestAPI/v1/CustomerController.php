@@ -423,7 +423,13 @@ class CustomerController extends Controller
             ->where(['order_id' => $request['order_id']])
             ->get();
 
-        $detailsList->map(function ($query) use ($user) {
+        $productIds = $detailsList->pluck('product_id')->toArray();
+        $allReviews = Review::whereIn('product_id', $productIds)
+            ->where('customer_id', $user->id)
+            ->whereNull('delivery_man_id')
+            ->get();
+
+        $detailsList->map(function ($query) use ($user, $allReviews) {
             $query['variation'] = json_decode($query['variation'], true);
             $currentProduct = Product::where('id', $query['product_id'])->first();
             $product = $currentProduct ?? json_decode($query['product_details'], true);
@@ -434,7 +440,7 @@ class CustomerController extends Controller
             }
             $query['product_details'] = Helpers::product_data_formatting_for_json_data($product);
 
-            $reviews = Review::where(['product_id' => $query['product_id'], 'customer_id' => $user->id])->whereNull('delivery_man_id')->get();
+            $reviews = $allReviews->where('product_id', $query['product_id']);
             $reviewData = null;
             foreach ($reviews as $review) {
                 if ($review->order_id == $query['order_id']) {
@@ -442,8 +448,8 @@ class CustomerController extends Controller
                 }
             }
 
-            if (isset($reviews[0]) && is_null($reviewData)) {
-                $reviewData = ($reviews[0]['order_id'] == null ? $reviews[0] : null);
+            if ($reviews->count() > 0 && is_null($reviewData)) {
+                $reviewData = ($reviews->first()['order_id'] == null ? $reviews->first() : null);
             }
             $query['reviewData'] = $reviewData;
             return $query;

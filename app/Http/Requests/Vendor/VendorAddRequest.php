@@ -23,7 +23,7 @@ class VendorAddRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return true;
+        return true; // Public endpoint
     }
 
     /**

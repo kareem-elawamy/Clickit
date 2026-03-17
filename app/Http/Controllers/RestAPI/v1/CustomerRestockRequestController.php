@@ -57,12 +57,7 @@ class CustomerRestockRequestController extends Controller
             $this->restockProductCustomerRepo->delete(params: ['restock_product_id' => $request['id'], 'customer_id' => $user->id]);
         }
 
-        $restockProducts = $this->restockProductRepo->getListWhere(relations:['restockProductCustomers'], dataLimit: 'all');
-        $restockProducts->map(function ($restockProduct) {
-            if($restockProduct->restockProductCustomers->count() === 0) {
-                $this->restockProductRepo->delete(params: ['id' => $restockProduct['id']]);
-            }
-        });
+        \App\Models\RestockProduct::doesntHave('restockProductCustomers')->delete();
         return response()->json(['message' => translate('Deleted_successfully')], 200);
     }
 }

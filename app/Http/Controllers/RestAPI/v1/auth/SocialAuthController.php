@@ -54,17 +54,14 @@ class SocialAuthController extends Controller
                 $res = $client->request('GET', 'https://graph.facebook.com/' . $unique_id . '?access_token=' . $token . '&&fields=name,email');
                 $data = json_decode($res->getBody()->getContents(), true);
             } elseif ($request['medium'] == 'apple') {
-                $apple_login = BusinessSetting::where(['type' => 'apple_login'])->first();
-                if ($apple_login) {
-                    $apple_login = json_decode($apple_login->value)[0];
-                }
-                $teamId = $apple_login->team_id;
-                $keyId = $apple_login->key_id;
-                $sub = $apple_login->client_id;
+                $apple_login = getWebConfig(name: 'apple_login');
+                $teamId = $apple_login['team_id'];
+                $keyId = $apple_login['key_id'];
+                $sub = $apple_login['client_id'];
                 $aud = 'https://appleid.apple.com';
                 $iat = strtotime('now');
                 $exp = strtotime('+60days');
-                $keyContent = file_get_contents('storage/app/public/apple-login/' . $apple_login->service_file);
+                $keyContent = file_get_contents('storage/app/public/apple-login/' . $apple_login['service_file']);
 
                 $token = JWT::encode([
                     'iss' => $teamId,
@@ -239,10 +236,7 @@ class SocialAuthController extends Controller
                 $res = $client->request('GET', 'https://graph.facebook.com/' . $uniqueId . '?access_token=' . $token . '&&fields=name,email');
                 $data = json_decode($res->getBody()->getContents(), true);
             } elseif ($request['medium'] == 'apple') {
-                $apple_login = BusinessSetting::where(['type' => 'apple_login'])->first();
-                if ($apple_login) {
-                    $apple_login = json_decode($apple_login->value, true)[0];
-                }
+                $apple_login = getWebConfig(name: 'apple_login');
                 $teamId = $apple_login['team_id'];
                 $keyId = $apple_login['key_id'];
                 $sub = $apple_login['client_id'];

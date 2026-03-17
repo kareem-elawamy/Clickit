@@ -53,13 +53,14 @@ class ChattingController extends BaseController
         $shop = $this->shopRepo->getFirstWhere(params: ['seller_id' => auth('seller')->id()]);
         $adminId = 0;
         if ($type == 'delivery-man') {
-            $allChattingUsers = $this->chattingRepo->getListWhereNotNull(
-                orderBy: ['id' => 'DESC'],
-                filters: ['admin_id' => $adminId],
-                whereNotNull: ['delivery_man_id', 'admin_id'],
-                relations: ['deliveryMan'],
-                dataLimit: 'all'
-            )->unique('delivery_man_id');
+            $allChattingUsers = \App\Models\Chatting::with('deliveryMan')
+                ->where('admin_id', $adminId)
+                ->whereNotNull('delivery_man_id')
+                ->whereNotNull('admin_id')
+                ->select(\Illuminate\Support\Facades\DB::raw('MAX(id) as id'), 'delivery_man_id')
+                ->groupBy('delivery_man_id')
+                ->orderBy('id', 'DESC')
+                ->get();
 
             if (count($allChattingUsers) > 0) {
                 $lastChatUser = $allChattingUsers[0]->deliveryMan;
@@ -94,13 +95,14 @@ class ChattingController extends BaseController
                 ]);
             }
         } elseif ($type == 'customer') {
-            $allChattingUsers = $this->chattingRepo->getListWhereNotNull(
-                orderBy: ['id' => 'DESC'],
-                filters: ['admin_id' => $adminId],
-                whereNotNull: ['user_id', 'admin_id'],
-                relations: ['customer'],
-                dataLimit: 'all'
-            )->unique('user_id');
+            $allChattingUsers = \App\Models\Chatting::with('customer')
+                ->where('admin_id', $adminId)
+                ->whereNotNull('user_id')
+                ->whereNotNull('admin_id')
+                ->select(\Illuminate\Support\Facades\DB::raw('MAX(id) as id'), 'user_id')
+                ->groupBy('user_id')
+                ->orderBy('id', 'DESC')
+                ->get();
 
             if (count($allChattingUsers) > 0) {
                 $lastChatUser = $allChattingUsers[0]->customer;
@@ -276,10 +278,12 @@ class ChattingController extends BaseController
 
     public function getNewNotification(): JsonResponse
     {
-        $chatting = $this->chattingRepo->getListWhereNotNull(
-            filters: ['admin_id' => 0, 'seen_by_admin' => 0, 'notification_receiver' => 'admin', 'seen_notification' => 0],
-            whereNotNull: ['admin_id'],
-        )->count();
+        $chatting = \App\Models\Chatting::where([
+            'admin_id' => 0,
+            'seen_by_admin' => 0,
+            'notification_receiver' => 'admin',
+            'seen_notification' => 0
+        ])->whereNotNull('admin_id')->count();
 
         $this->chattingRepo->updateListWhereNotNull(
             filters: ['admin_id' => 0, 'seen_by_admin' => 0, 'notification_receiver' => 'admin', 'seen_notification' => 0],

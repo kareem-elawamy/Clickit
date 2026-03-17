@@ -63,7 +63,7 @@ class CartController extends Controller
             $string = Color::where('code', $request['color'])->first()->name;
         }
 
-        foreach (json_decode(Product::find($request->id)->choice_options) as $key => $choice) {
+        foreach (json_decode($product->choice_options) as $key => $choice) {
             if ($string != null) {
                 $string .= '-' . str_replace(' ', '', $request[$choice->name]);
             } else {

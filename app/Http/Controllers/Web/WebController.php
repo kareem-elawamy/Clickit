@@ -229,24 +229,29 @@ class WebController extends Controller
                 });
             })
             ->with('seller', function ($query) {
-                $query->with('product', function ($query) {
-                    $query->active()->with('reviews', function ($query) {
-                        $query->active();
-                    });
-                })->withCount(['orders']);
+                $query->withCount(['orders']);
             })
+            ->withAvg(['sellerProductsReviews as average_rating' => function($query) {
+                 $query->active();
+            }], 'rating')
+            ->withCount(['sellerProductsReviews as review_count' => function($query) {
+                 $query->active();
+            }])
+            ->withSum(['sellerProductsReviews as total_rating' => function($query) {
+                 $query->active();
+            }], 'rating')
+            ->withCount(['sellerProductsReviews as positive_review_count' => function ($query) {
+                 $query->active()->where('rating', '>=', 4);
+            }])
             ->get()
             ->each(function ($shop) {
-                $shop->orders_count = $shop->seller->orders_count;
+                $shop->orders_count = $shop->seller->orders_count ?? 0;
+                
+                $shop->average_rating = $shop->average_rating ?? 0;
+                $shop->review_count = $shop->review_count ?? 0;
+                $shop->total_rating = $shop->total_rating ?? 0;
 
-                $productReviews = $shop->seller->product->pluck('reviews')->collapse();
-                $productReviews = $productReviews->where('status', 1);
-                $shop->average_rating = $productReviews->avg('rating');
-                $shop->review_count = $productReviews->count();
-                $shop->total_rating = $productReviews->sum('rating');
-
-                $positiveReviewsCount = $productReviews->where('rating', '>=', 4)->count();
-                $shop->positive_review = ($shop->review_count !== 0) ? ($positiveReviewsCount * 100) / $shop->review_count : 0;
+                $shop->positive_review = ($shop->review_count !== 0) ? ($shop->positive_review_count * 100) / $shop->review_count : 0;
 
                 $currentDate = date('Y-m-d');
                 $startDate = date('Y-m-d', strtotime($shop['vacation_start_date']));

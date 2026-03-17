@@ -140,7 +140,7 @@ class PhoneVerificationController extends Controller
             $user->phone = $request['phone'];
             $user->is_phone_verified = 1;
             $user->save();
-            $verify->delete();
+            PhoneOrEmailVerification::where(['phone_or_email' => $request['phone']])->delete();
 
             $token = $user->createToken('LaravelAuthApp')->accessToken;
             return response()->json([

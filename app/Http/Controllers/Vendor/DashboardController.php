@@ -27,6 +27,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use App\Models\OrderTransaction;
 
 class DashboardController extends BaseController
 {
@@ -238,18 +240,32 @@ class DashboardController extends BaseController
     protected function getVendorEarning(string|Carbon $from, string|Carbon $to, array $range, string $type): array
     {
         $vendorId = auth('seller')->id();
-        $vendorEarnings = $this->orderTransactionRepo->getListWhereBetween(
-            filters: [
+        
+        $groupByQuery = match ($type) {
+            'year' => "YEAR(created_at)",
+            'month' => "MONTH(created_at)",
+            'week' => "WEEK(created_at)",
+            'day' => "DAY(created_at)",
+            default => "MONTH(created_at)",
+        };
+
+        $vendorEarnings = OrderTransaction::where([
                 'seller_is' => 'seller',
                 'seller_id' => $vendorId,
                 'status' => 'disburse',
-            ],
-            selectColumn: 'seller_amount',
-            whereBetween: 'created_at',
-            groupBy: $type,
-            whereBetweenFilters: [$from, $to],
-        );
-        return $this->dashboardService->getDateWiseAmount(range: $range, type: $type, amountArray: $vendorEarnings);
+            ])
+            ->whereBetween('created_at', [$from, $to])
+            ->selectRaw("{$groupByQuery} as date_group, SUM(seller_amount) as amount")
+            ->groupBy(DB::raw($groupByQuery))
+            ->pluck('amount', 'date_group')
+            ->toArray();
+            
+        $formattedEarnings = [];
+        foreach ($range as $key) {
+            $formattedEarnings[$key] = $vendorEarnings[$key] ?? 0;
+        }
+        
+        return $formattedEarnings;
     }
 
     /**
@@ -262,18 +278,32 @@ class DashboardController extends BaseController
     protected function getAdminCommission(string|Carbon $from, string|Carbon $to, array $range, string $type): array
     {
         $vendorId = auth('seller')->id();
-        $commissionGiven = $this->orderTransactionRepo->getListWhereBetween(
-            filters: [
+        
+        $groupByQuery = match ($type) {
+            'year' => "YEAR(created_at)",
+            'month' => "MONTH(created_at)",
+            'week' => "WEEK(created_at)",
+            'day' => "DAY(created_at)",
+            default => "MONTH(created_at)",
+        };
+
+        $commissionGiven = OrderTransaction::where([
                 'seller_is' => 'seller',
                 'seller_id' => $vendorId,
                 'status' => 'disburse',
-            ],
-            selectColumn: 'admin_commission',
-            whereBetween: 'created_at',
-            groupBy: $type,
-            whereBetweenFilters: [$from, $to],
-        );
-        return $this->dashboardService->getDateWiseAmount(range: $range, type: $type, amountArray: $commissionGiven);
+            ])
+            ->whereBetween('created_at', [$from, $to])
+            ->selectRaw("{$groupByQuery} as date_group, SUM(admin_commission) as amount")
+            ->groupBy(DB::raw($groupByQuery))
+            ->pluck('amount', 'date_group')
+            ->toArray();
+
+        $formattedCommission = [];
+        foreach ($range as $key) {
+            $formattedCommission[$key] = $commissionGiven[$key] ?? 0;
+        }
+
+        return $formattedCommission;
     }
 
     /**

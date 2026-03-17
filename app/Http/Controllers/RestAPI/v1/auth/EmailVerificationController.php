@@ -188,7 +188,7 @@ class EmailVerificationController extends Controller
             $user->email = $request['email'];
             $user->is_email_verified = 1;
             $user->save();
-            $verify->delete();
+            PhoneOrEmailVerification::where(['phone_or_email' => $request['email']])->delete();
 
             $token = $user->createToken('LaravelAuthApp')->accessToken;
             return response()->json([

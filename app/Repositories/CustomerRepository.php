@@ -125,19 +125,8 @@ class CustomerRepository implements CustomerRepositoryInterface
                 $query->orderBy(array_key_first($orderBy), array_values($orderBy)[0]);
             });
 
-        if (!empty($takeItem) && $dataLimit == 'all') {
+        if (!empty($takeItem)) {
             return $query->limit($takeItem)->get();
-        } else if (!empty($takeItem) && $dataLimit != 'all') {
-            $results = $query->limit($takeItem)->get();
-            $page = request('page') ?? 1;
-            $perPage = $dataLimit;
-            $paginator = new LengthAwarePaginator(
-                items: $results->forPage($page, $perPage)->values(),
-                total: $results->count(),
-                perPage: $perPage,
-                currentPage: $page,
-                options: ['path' => request()->url(), 'query' => request()->query()]);
-            return $paginator->appends($appends);
         }
         return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit)->appends($appends);
     }

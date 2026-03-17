@@ -167,9 +167,9 @@ class TransactionReportController extends Controller
 
         $transactions = self::order_transaction_table_data_filter($request);
 
-        $totalStores = $transactions->get()->unique(function ($item) {
-            return $item->seller_id . '_' . $item->seller_is;
-        })->count();
+        $totalStores = self::order_transaction_table_data_filter($request)
+            ->selectRaw('COUNT(DISTINCT CONCAT(seller_id, "_", seller_is)) as count')
+            ->value('count');
 
         $query_param = ['search' => $search, 'status' => $status, 'customer_id' => $customer_id, 'date_type' => $date_type, 'from' => $from, 'to' => $to];
         $transactions = $transactions->latest('updated_at')->paginate(Helpers::pagination_limit())->appends($query_param);
@@ -648,17 +648,16 @@ class TransactionReportController extends Controller
         $year_month = date('Y-m', strtotime($start_date));
         $month = substr(date("F", strtotime("$year_month")), 0, 3);
         $orders = self::order_transaction_date_common_query($request, $start_date, $end_date)
-            ->selectRaw('sum(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as order_amount, YEAR(updated_at) year, MONTH(updated_at) month, DAY(updated_at) day')
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%D')"))
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%d') AS UNSIGNED) as day"),
+                DB::raw('SUM(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as total_amount')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%d')"))
+            ->pluck('total_amount', 'day')
+            ->toArray();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
-            $order_amount[$inc] = 0;
-            foreach ($orders as $match) {
-                if ($match['day'] == $inc) {
-                    $order_amount[$inc] = $match['order_amount'];
-                }
-            }
+            $order_amount[$inc] = $orders[$inc] ?? 0;
         }
 
         return array(
@@ -680,19 +679,15 @@ class TransactionReportController extends Controller
 
         $orders = self::order_transaction_date_common_query($request, $start_date, $end_date)
             ->select(
-                DB::raw('sum(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as order_amount'),
-                DB::raw("(DATE_FORMAT(updated_at, '%W')) as day")
+                DB::raw("DATE_FORMAT(updated_at, '%W') as day_name"),
+                DB::raw('SUM(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as total_amount')
             )
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%D')"))
-            ->latest('updated_at')->get();
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%W')"))
+            ->pluck('total_amount', 'day_name')
+            ->toArray();
 
         for ($inc = 0; $inc <= $number; $inc++) {
-            $order_amount[$day_name[$inc]] = 0;
-            foreach ($orders as $match) {
-                if ($match['day'] == $day_name[$inc]) {
-                    $order_amount[$day_name[$inc]] = $match['order_amount'];
-                }
-            }
+            $order_amount[$day_name[$inc]] = $orders[$day_name[$inc]] ?? 0;
         }
 
         return array(
@@ -709,19 +704,15 @@ class TransactionReportController extends Controller
 
         $orders = self::order_transaction_date_common_query($request, $start_date, $end_date)
             ->select(
-                DB::raw('sum(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as order_amount'),
-                DB::raw("(DATE_FORMAT(updated_at, '%W')) as day")
+                DB::raw("DATE_FORMAT(updated_at, '%W') as day_name"),
+                DB::raw('SUM(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as total_amount')
             )
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%D')"))
-            ->latest('updated_at')->get();
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%W')"))
+            ->pluck('total_amount', 'day_name')
+            ->toArray();
 
         for ($inc = 0; $inc < $number; $inc++) {
-            $order_amount[$dayName[$inc]] = 0;
-            foreach ($orders as $match) {
-                if ($match['day'] == $dayName[$inc]) {
-                    $order_amount[$dayName[$inc]] = $match['order_amount'];
-                }
-            }
+            $order_amount[$dayName[$inc]] = $orders[$dayName[$inc]] ?? 0;
         }
 
         return [
@@ -733,18 +724,17 @@ class TransactionReportController extends Controller
     {
 
         $orders = self::order_transaction_date_common_query($request, $start_date, $end_date)
-            ->selectRaw('sum(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as order_amount, YEAR(updated_at) year, MONTH(updated_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%M')"))
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%m') AS UNSIGNED) as month"),
+                DB::raw('SUM(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as total_amount')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%m')"))
+            ->pluck('total_amount', 'month')
+            ->toArray();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = substr(date("F", strtotime("2023-$inc-01")), 0, 3);
-            $order_amount[$month] = 0;
-            foreach ($orders as $match) {
-                if ($match['month'] == $inc) {
-                    $order_amount[$month] = $match['order_amount'];
-                }
-            }
+            $order_amount[$month] = $orders[$inc] ?? 0;
         }
 
         return array(
@@ -756,17 +746,16 @@ class TransactionReportController extends Controller
     {
 
         $orders = self::order_transaction_date_common_query($request, $start_date, $end_date)
-            ->selectRaw('sum(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as order_amount, YEAR(updated_at) year')
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%Y') AS UNSIGNED) as year"),
+                DB::raw('SUM(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as total_amount')
+            )
             ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%Y')"))
-            ->latest('updated_at')->get();
+            ->pluck('total_amount', 'year')
+            ->toArray();
 
         for ($inc = $from_year; $inc <= $to_year; $inc++) {
-            $order_amount[$inc] = 0;
-            foreach ($orders as $match) {
-                if ($match['year'] == $inc) {
-                    $order_amount[$inc] = $match['order_amount'];
-                }
-            }
+            $order_amount[$inc] = $orders[$inc] ?? 0;
         }
 
         return array(

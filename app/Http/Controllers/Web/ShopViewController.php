@@ -46,12 +46,18 @@ class ShopViewController extends Controller
         }
 
         $getProductIDs = $shopProducts->pluck('id')->toArray();
+        $reviewAggregates = Review::active()
+            ->where('status', 1)
+            ->whereIn('product_id', $getProductIDs)
+            ->selectRaw('AVG(rating) as average_rating, COUNT(*) as total_review')
+            ->first();
+
         return [
             'id' => $shopId,
             'name' => $shopId == 0 ? getWebConfig(name: 'company_name') : Shop::where('id', $shopId)->first()->name,
             'seller_id' => $shopId == 0 ? 0 : $shop?->seller_id,
-            'average_rating' => Review::active()->where('status', 1)->whereIn('product_id', $getProductIDs)->avg('rating'),
-            'total_review' => Review::active()->where('status', 1)->whereIn('product_id', $getProductIDs)->count(),
+            'average_rating' => $reviewAggregates->average_rating ?? 0,
+            'total_review' => $reviewAggregates->total_review ?? 0,
             'total_order' => $totalOrder,
             'current_date' => date('Y-m-d'),
             'vacation_start_date' => $shopId == 0 ? $inhouseVacation['vacation_start_date'] : date('Y-m-d', strtotime($shop->vacation_start_date)),

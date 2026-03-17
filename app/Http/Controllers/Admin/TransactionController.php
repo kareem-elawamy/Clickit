@@ -79,17 +79,22 @@ class TransactionController extends Controller
             ->when(!empty($from) && !empty($to),function($query) use($from,$to){
                 $query->whereBetween('created_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
             })
-            ->latest()->get();
+            ->latest()->cursor();
 
-        $tranData = array();
-        foreach($transactions as $tran){
-            if($tran['seller_is'] == 'admin'){
+        $generator = function () use ($transactions) {
+            foreach ($transactions as $tran) {
+                yield $tran;
+            }
+        };
+            
+        return (new FastExcel($generator()))->download('Transaction_All_details.xlsx', function ($tran) {
+            if ($tran['seller_is'] == 'admin') {
                 $seller_name = getWebConfig(name: 'company_name');
-            }else{
+            } else {
                 $seller_name = $tran->seller ? $tran->seller->f_name .' '. $tran->seller->l_name : translate('not_found');
             }
 
-            $tranData[] = array(
+            return [
                 'Seller Name' => $seller_name,
                 'Customer Name' => $tran->customer ? $tran->customer->f_name.' '.$tran->customer->l_name : translate('not_found'),
                 'Order ID' => $tran->order_id,
@@ -104,10 +109,8 @@ class TransactionController extends Controller
                 'Tax' => $tran->tax,
                 'Date' => date('d M Y',strtotime($tran->created_at)),
                 'Status' => $tran->status,
-            );
-        }
-
-        return (new FastExcel($tranData))->download('Transaction_All_details.xlsx');
+            ];
+        });
 
     }
 }

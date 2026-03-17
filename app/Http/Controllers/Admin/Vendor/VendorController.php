@@ -23,6 +23,7 @@ use App\Events\VendorRegistrationEvent;
 use App\Http\Controllers\BaseController;
 use App\Events\WithdrawStatusUpdateEvent;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
+use App\Models\Review; // Added for PERF-30
 use App\Http\Requests\Admin\VendorAddRequest;
 use App\Contracts\Repositories\ShopRepositoryInterface;
 use App\Contracts\Repositories\OrderRepositoryInterface;
@@ -202,11 +203,19 @@ class VendorController extends BaseController
             'failed' => 0,
             'canceled' => 0,
         ];
-        $orders?->map(function ($order) use (&$statusArray) { // Pass by reference using &
-            if (isset($statusArray[$order->order_status])) {
-                $statusArray[$order->order_status]++;
+        // PERF-29: Replaced memory-heavy PHP mapped counting with DB-level grouped counts.
+        $statusCounts = \App\Models\Order::where('seller_id', $vendorId)
+            ->where('seller_is', 'seller')
+            ->select('order_status', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+            ->groupBy('order_status')
+            ->pluck('total', 'order_status')
+            ->toArray();
+
+        foreach ($statusCounts as $status => $count) {
+            if (isset($statusArray[$status])) {
+                $statusArray[$status] = $count;
             }
-        });
+        }
         $data = [
             'shop' => $shop,
             'statusArray' => $statusArray,
@@ -287,34 +296,31 @@ class VendorController extends BaseController
         if (!$seller) {
             return redirect()->route('admin.vendors.vendor-list');
         }
-        $seller?->product?->map(function ($product) {
-            $product['rating'] = $product?->reviews->pluck('rating')->sum();
-            $product['rating_count'] = $product->reviews->count();
-            $product['single_rating_5'] = 0;
-            $product['single_rating_4'] = 0;
-            $product['single_rating_3'] = 0;
-            $product['single_rating_2'] = 0;
-            $product['single_rating_1'] = 0;
-            foreach ($product->reviews as $review) {
-                $rating = $review->rating;
-                if ($rating > 0) {
-                    match ($rating) {
-                        5 => $product->single_rating_5++,
-                        4 => $product->single_rating_4++,
-                        3 => $product->single_rating_3++,
-                        2 => $product->single_rating_2++,
-                        1 => $product->single_rating_1++,
-                    };
-                }
+        // PERF-30: Replaced memory-heavy PHP looping with DB-level review aggregations
+        $seller['single_rating_5'] = 0;
+        $seller['single_rating_4'] = 0;
+        $seller['single_rating_3'] = 0;
+        $seller['single_rating_2'] = 0;
+        $seller['single_rating_1'] = 0;
+        $seller['total_rating'] = 0;
+        $seller['rating_count'] = 0;
+
+        $ratingCounts = Review::whereHas('product', function ($query) use ($id) {
+            $query->where('user_id', $id)->where('added_by', 'seller');
+        })
+            ->select('rating', \Illuminate\Support\Facades\DB::raw('count(*) as count'))
+            ->groupBy('rating')
+            ->pluck('count', 'rating')
+            ->toArray();
+
+        foreach ($ratingCounts as $rating => $count) {
+            if ($rating > 0 && $rating <= 5) {
+                $seller['single_rating_' . $rating] = $count;
+                $seller['total_rating'] += ($rating * $count);
+                $seller['rating_count'] += $count;
             }
-        });
-        $seller['single_rating_5'] = $seller?->product->pluck('single_rating_5')->sum();
-        $seller['single_rating_4'] = $seller?->product->pluck('single_rating_4')->sum();
-        $seller['single_rating_3'] = $seller?->product->pluck('single_rating_3')->sum();
-        $seller['single_rating_2'] = $seller?->product->pluck('single_rating_2')->sum();
-        $seller['single_rating_1'] = $seller?->product->pluck('single_rating_1')->sum();
-        $seller['total_rating'] = $seller?->product->pluck('rating')->sum();
-        $seller['rating_count'] = $seller->product->pluck('rating_count')->sum();
+        }
+
         $seller['average_rating'] = $seller['total_rating'] / ($seller['rating_count'] == 0 ? 1 : $seller['rating_count']);
 
         if (!isset($seller)) {

@@ -161,18 +161,17 @@ class OrderReportController extends Controller
     public function order_report_same_year($request, $start_date, $end_date, $from_year, $number, $default_inc)
     {
         $orders = self::order_report_chart_common_query($request, $start_date, $end_date)
-            ->selectRaw('sum(order_amount) as order_amount, YEAR(updated_at) year, MONTH(updated_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%M')"))
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%m') AS UNSIGNED) as month"),
+                DB::raw('SUM(order_amount) as total_amount')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%m')"))
+            ->pluck('total_amount', 'month')
+            ->toArray();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = substr(date("F", strtotime("2023-$inc-01")), 0, 3);
-            $orderAmount[$month] = 0;
-            foreach ($orders as $match) {
-                if ($match['month'] == $inc) {
-                    $orderAmount[$month] = $match['order_amount'];
-                }
-            }
+            $orderAmount[$month] = $orders[$inc] ?? 0;
         }
 
         return [
@@ -186,17 +185,16 @@ class OrderReportController extends Controller
         $month = substr(date("F", strtotime("$year_month")), 0, 3);
 
         $orders = self::order_report_chart_common_query($request, $start_date, $end_date)
-            ->selectRaw('sum(order_amount) as order_amount, YEAR(updated_at) year, MONTH(updated_at) month, DAY(updated_at) day')
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%D')"))
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%d') AS UNSIGNED) as day"),
+                DB::raw('SUM(order_amount) as total_amount')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%d')"))
+            ->pluck('total_amount', 'day')
+            ->toArray();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
-            $order_amount[$inc] = 0;
-            foreach ($orders as $match) {
-                if ($match['day'] == $inc) {
-                    $order_amount[$inc] = $match['order_amount'];
-                }
-            }
+            $order_amount[$inc] = $orders[$inc] ?? 0;
         }
 
         return array(
@@ -218,19 +216,15 @@ class OrderReportController extends Controller
 
         $orders = self::order_report_chart_common_query($request, $start_date, $end_date)
             ->select(
-                DB::raw('sum(order_amount) as order_amount'),
-                DB::raw("(DATE_FORMAT(updated_at, '%W')) as day")
+                DB::raw("DATE_FORMAT(updated_at, '%W') as day_name"),
+                DB::raw('SUM(order_amount) as total_amount')
             )
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%D')"))
-            ->latest('updated_at')->get();
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%W')"))
+            ->pluck('total_amount', 'day_name')
+            ->toArray();
 
         for ($inc = 0; $inc <= $number; $inc++) {
-            $order_amount[$day_name[$inc]] = 0;
-            foreach ($orders as $match) {
-                if ($match['day'] == $day_name[$inc]) {
-                    $order_amount[$day_name[$inc]] = $match['order_amount'];
-                }
-            }
+            $order_amount[$day_name[$inc]] = $orders[$day_name[$inc]] ?? 0;
         }
 
         return array(
@@ -245,19 +239,15 @@ class OrderReportController extends Controller
 
         $orders = self::order_report_chart_common_query($request, Carbon::now()->startOfDay(), Carbon::now()->endOfDay())
             ->select(
-                DB::raw('sum(order_amount) as order_amount'),
-                DB::raw("(DATE_FORMAT(updated_at, '%W')) as day")
+                DB::raw("DATE_FORMAT(updated_at, '%W') as day_name"),
+                DB::raw('SUM(order_amount) as total_amount')
             )
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%D')"))
-            ->latest('updated_at')->get();
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%W')"))
+            ->pluck('total_amount', 'day_name')
+            ->toArray();
 
         for ($inc = 0; $inc < $number; $inc++) {
-            $order_amount[$dayName[$inc]] = 0;
-            foreach ($orders as $match) {
-                if ($match['day'] == $dayName[$inc]) {
-                    $order_amount[$dayName[$inc]] = $match['order_amount'];
-                }
-            }
+            $order_amount[$dayName[$inc]] = $orders[$dayName[$inc]] ?? 0;
         }
 
         return [
@@ -268,17 +258,16 @@ class OrderReportController extends Controller
     public function order_report_different_year($request, $start_date, $end_date, $from_year, $to_year)
     {
         $orders = self::order_report_chart_common_query($request, $start_date, $end_date)
-            ->selectRaw('sum(order_amount) as order_amount, YEAR(updated_at) year')
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%Y') AS UNSIGNED) as year"),
+                DB::raw('SUM(order_amount) as total_amount')
+            )
             ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%Y')"))
-            ->latest('updated_at')->get();
+            ->pluck('total_amount', 'year')
+            ->toArray();
 
         for ($inc = $from_year; $inc <= $to_year; $inc++) {
-            $order_amount[$inc] = 0;
-            foreach ($orders as $match) {
-                if ($match['year'] == $inc) {
-                    $order_amount[$inc] = $match['order_amount'];
-                }
-            }
+            $order_amount[$inc] = $orders[$inc] ?? 0;
         }
 
         return array(
@@ -409,12 +398,16 @@ class OrderReportController extends Controller
         $totalTax = $orders->sum('details_sum_tax') ?? 0;
         $totalOrderCommission = $orders->sum('admin_commission') ?? 0;
 
-        $totalDeliveryCharge = 0;
-        $totalDeliverymanIncentive = 0;
-        foreach ($orders as $order) {
-            $totalDeliveryCharge += ($order->shipping_cost - ($order->extra_discount_type == 'free_shipping_over_order_amount' ? $order->extra_discount : 0));
-            $totalDeliverymanIncentive += ($order->delivery_type == 'self_delivery' && $order->delivery_man_id) ? $order->deliveryman_charge : 0;
-        }
+        $baseOrdersQuery = self::all_order_table_data_filter($request);
+
+        $totalDeliveryCharge = (clone $baseOrdersQuery)
+            ->select(DB::raw('SUM(shipping_cost - CASE WHEN extra_discount_type = "free_shipping_over_order_amount" THEN extra_discount ELSE 0 END) as total'))
+            ->value('total') ?? 0;
+
+        $totalDeliverymanIncentive = (clone $baseOrdersQuery)
+            ->where('delivery_type', 'self_delivery')
+            ->whereNotNull('delivery_man_id')
+            ->sum('deliveryman_charge') ?? 0;
 
         $data = [
             'orders' => $orders,

@@ -52,12 +52,9 @@ class BrandController extends Controller
         $brandProductSortBy = getWebConfig(name: 'brand_list_priority');
         if ($brandProductSortBy && ($brandProductSortBy['custom_sorting_status'] == 1)) {
             if ($brandProductSortBy['sort_by'] == 'most_order') {
-                return $query->with(['brandProducts' => function ($query) {
-                    return $query->withCount('orderDetails');
-                }])->get()->map(function ($brand) {
-                    $brand['order_count'] = $brand?->brandProducts?->sum('order_details_count') ?? 0;
-                    return $brand;
-                })->sortByDesc('order_count');
+                return $query->withCount(['brandProducts as order_count' => function ($query) {
+                    $query->join('order_details', 'products.id', '=', 'order_details.product_id');
+                }])->orderByDesc('order_count')->get();
             } elseif ($brandProductSortBy['sort_by'] == 'latest_created') {
                 return $query->latest()->get();
             } elseif ($brandProductSortBy['sort_by'] == 'first_created') {

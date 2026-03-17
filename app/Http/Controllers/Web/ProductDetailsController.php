@@ -346,16 +346,14 @@ class ProductDetailsController extends Controller
 
             $productIds = Product::active()->where(['added_by' => $product['added_by']])
                 ->where('user_id', $product['user_id'])->pluck('id')->toArray();
-            $vendorReviewData = Review::active()->whereIn('product_id', $productIds);
-            $ratingCount = $vendorReviewData->count();
-            $avgRating = $vendorReviewData->avg('rating');
+            
+            $vendorRatings = Review::active()->whereIn('product_id', $productIds)
+                ->selectRaw('COUNT(*) as total_reviews, SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) as positive_reviews, AVG(rating) as avg_rating')
+                ->first();
 
-            $vendorRattingStatusPositive = 0;
-            foreach ($vendorReviewData->pluck('rating') as $singleRating) {
-                ($singleRating >= 4 ? ($vendorRattingStatusPositive++) : '');
-            }
-
-            $positiveReview = $ratingCount != 0 ? ($vendorRattingStatusPositive * 100) / $ratingCount : 0;
+            $ratingCount = $vendorRatings->total_reviews ?? 0;
+            $avgRating = $vendorRatings->avg_rating ?? 0;
+            $positiveReview = $ratingCount > 0 ? ($vendorRatings->positive_reviews * 100) / $ratingCount : 0;
 
             $sellerList = $this->sellerRepo->getListWithScope(
                 scope: 'active',

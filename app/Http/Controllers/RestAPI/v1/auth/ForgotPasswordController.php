@@ -53,21 +53,11 @@ class ForgotPasswordController extends Controller
                     return response()->json(['message' => translate('please_try_again_after').' '.CarbonInterval::seconds($time)->cascade()->forHumans()], 200);
                 }else {
                     $token = Str::random(120);
-                    $reset_data = PasswordReset::where(['identity' => $customer['email']])->latest()->first();
-                    if($reset_data){
-                        $reset_data->token = $token;
-                        $reset_data->created_at = now();
-                        $reset_data->updated_at = now();
-                        $reset_data->save();
-                    }else{
-                        $reset_data = new PasswordReset();
-                        $reset_data->identity = $customer['email'];
-                        $reset_data->token = $token;
-                        $reset_data->user_type = 'customer';
-                        $reset_data->created_at = now();
-                        $reset_data->updated_at = now();
-                        $reset_data->save();
-                    }
+                    DB::table('password_resets')->updateOrInsert(['identity' => $customer['email'], 'user_type' => 'customer'], [
+                        'token' => $token,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
 
                     $reset_url = url('/') . '/customer/auth/reset-password?token=' . $token;
 
@@ -108,21 +98,11 @@ class ForgotPasswordController extends Controller
                     return response()->json(['message' => translate('please_try_again_after').' '.CarbonInterval::seconds($time)->cascade()->forHumans()], 200);
                 }else {
                     $token = (env('APP_MODE') == 'live') ? rand(100000, 999999) : 123456;
-                    $reset_data = PasswordReset::where(['identity' => $customer['phone']])->latest()->first();
-                    if($reset_data){
-                        $reset_data->token = $token;
-                        $reset_data->created_at = now();
-                        $reset_data->updated_at = now();
-                        $reset_data->save();
-                    }else{
-                        $reset_data = new PasswordReset();
-                        $reset_data->identity = $customer['phone'];
-                        $reset_data->token = $token;
-                        $reset_data->user_type = 'customer';
-                        $reset_data->created_at = now();
-                        $reset_data->updated_at = now();
-                        $reset_data->save();
-                    }
+                    DB::table('password_resets')->updateOrInsert(['identity' => $customer['phone'], 'user_type' => 'customer'], [
+                        'token' => $token,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
 
                     SMSModule::sendCentralizedSMS($customer->phone, $token);
                     return response()->json([

@@ -180,18 +180,17 @@ class ProductReportController extends Controller
     {
 
         $products = self::all_product_date_common_query($request, $start_date, $end_date)
-            ->selectRaw('count(*) as total_product, YEAR(created_at) year, MONTH(created_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%M')"))
-            ->latest('created_at')->get();
+            ->select(
+                DB::raw('count(*) as total_product'),
+                DB::raw("CAST(DATE_FORMAT(created_at, '%m') AS UNSIGNED) as month")
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%m')"))
+            ->pluck('total_product', 'month')
+            ->toArray();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = date("F", strtotime("2023-$inc-01"));
-            $total_product[$month . '-' . $from_year] = 0;
-            foreach ($products as $match) {
-                if ($match['month'] == $inc) {
-                    $total_product[$month . '-' . $from_year] = $match['total_product'];
-                }
-            }
+            $total_product[$month . '-' . $from_year] = $products[$inc] ?? 0;
         }
 
         return array(
@@ -201,21 +200,17 @@ class ProductReportController extends Controller
 
     public function all_product_same_month($request, $start_date, $end_date, $month_date, $number, $default_inc)
     {
-        $year_month = date('Y-m', strtotime($start_date));
-        $month = date("F", strtotime("$year_month"));
-
         $products = self::all_product_date_common_query($request, $start_date, $end_date)
-            ->selectRaw('count(*) as total_product, YEAR(updated_at) year, MONTH(created_at) month, DAY(created_at) day')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%D')"))
-            ->latest('created_at')->get();
+            ->select(
+                DB::raw('count(*) as total_product'),
+                DB::raw("CAST(DATE_FORMAT(created_at, '%d') AS UNSIGNED) as day")
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%d')"))
+            ->pluck('total_product', 'day')
+            ->toArray();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
-            $total_product[$inc] = 0;
-            foreach ($products as $match) {
-                if ($match['day'] == $inc) {
-                    $total_product[$inc] = $match['total_product'];
-                }
-            }
+            $total_product[$inc] = $products[$inc] ?? 0;
         }
 
         return array(
@@ -238,18 +233,14 @@ class ProductReportController extends Controller
         $products = self::all_product_date_common_query($request, $start_date, $end_date)
             ->select(
                 DB::raw('count(*) as total_product'),
-                DB::raw("(DATE_FORMAT(created_at, '%W')) as day")
+                DB::raw("DATE_FORMAT(created_at, '%W') as day_name")
             )
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%D')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%W')"))
+            ->pluck('total_product', 'day_name')
+            ->toArray();
 
         for ($inc = 0; $inc <= $number; $inc++) {
-            $total_product[$day_name[$inc]] = 0;
-            foreach ($products as $match) {
-                if ($match['day'] == $day_name[$inc]) {
-                    $total_product[$day_name[$inc]] = $match['total_product'];
-                }
-            }
+            $total_product[$day_name[$inc]] = $products[$day_name[$inc]] ?? 0;
         }
 
         return array(
@@ -264,18 +255,14 @@ class ProductReportController extends Controller
         $products = self::all_product_date_common_query($request, Carbon::now()->startOfDay(), Carbon::now()->endOfDay())
             ->select(
                 DB::raw('count(*) as total_product'),
-                DB::raw("(DATE_FORMAT(created_at, '%W')) as day")
+                DB::raw("DATE_FORMAT(created_at, '%W') as day_name")
             )
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%D')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%W')"))
+            ->pluck('total_product', 'day_name')
+            ->toArray();
 
         for ($inc = 0; $inc < $number; $inc++) {
-            $total_product[$dayName[$inc]] = 0;
-            foreach ($products as $match) {
-                if ($match['day'] == $dayName[$inc]) {
-                    $total_product[$dayName[$inc]] = $match['total_product'];
-                }
-            }
+            $total_product[$dayName[$inc]] = $products[$dayName[$inc]] ?? 0;
         }
 
         return [
@@ -287,17 +274,16 @@ class ProductReportController extends Controller
     {
 
         $products = self::all_product_date_common_query($request, $start_date, $end_date)
-            ->selectRaw('count(*) as total_product, YEAR(created_at) year')
+            ->select(
+                DB::raw('count(*) as total_product'),
+                DB::raw("CAST(DATE_FORMAT(created_at, '%Y') AS UNSIGNED) as year")
+            )
             ->groupBy(DB::raw("DATE_FORMAT(created_at, '%Y')"))
-            ->latest('created_at')->get();
+            ->pluck('total_product', 'year')
+            ->toArray();
 
         for ($inc = $from_year; $inc <= $to_year; $inc++) {
-            $total_product[$inc] = 0;
-            foreach ($products as $match) {
-                if ($match['year'] == $inc) {
-                    $total_product[$inc] = $match['total_product'];
-                }
-            }
+            $total_product[$inc] = $products[$inc] ?? 0;
         }
 
         return array(

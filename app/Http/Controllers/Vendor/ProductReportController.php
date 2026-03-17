@@ -58,34 +58,17 @@ class ProductReportController extends Controller
             $total_sales_value += (isset($product->orderDetails[0]->total_sold_amount) ? $product->orderDetails[0]->total_sold_amount : 0) / (isset($product->orderDetails[0]->product_quantity) ? $product->orderDetails[0]->product_quantity : 1);
         }
 
-        $total_product_sale_query = Product::with(['orderDetails'=>function($query){
-                $query->select(
-                    'product_id',
-                    DB::raw('SUM(qty * price) as total_sale_amount'),
-                    DB::raw('SUM(qty) as product_quantity'),
-                    DB::raw('SUM(discount) as total_discount')
-                )->groupBy('product_id');
-            }])
-            ->whereHas('orderDetails',function($query){
-                $query->where('delivery_status', 'delivered');
+        $totals = OrderDetail::where('delivery_status', 'delivered')
+            ->whereHas('product', function($query) use ($seller_id, $date_type, $from, $to) {
+                $query->where(['user_id' => $seller_id, 'added_by' => 'seller']);
+                self::create_date_wise_common_filter($query, $date_type, $from, $to);
             })
-            ->where(['user_id' => $seller_id, 'added_by' => 'seller']);
-        $total_product_sales = self::create_date_wise_common_filter($total_product_sale_query, $date_type, $from, $to)
-            ->latest('created_at')
-            ->get();
+            ->selectRaw('SUM(qty) as total_qty, SUM(discount) as total_discount, SUM(qty * price) as total_amount')
+            ->first();
 
-        $total_product_sale = 0;
-        $total_product_sale_amount = 0;
-        $total_discount_given = 0;
-        if(count($total_product_sales) > 0) {
-            foreach ($total_product_sales as $sales) {
-                foreach ($sales->orderDetails as $sale) {
-                    $total_product_sale += isset($sale->product_quantity) ? $sale->product_quantity : 0;
-                    $total_discount_given += isset($sale->total_discount) ? $sale->total_discount : 0;
-                    $total_product_sale_amount += isset($sale->total_sale_amount) ? $sale->total_sale_amount : 0;
-                }
-            }
-        }
+        $total_product_sale = $totals->total_qty ?? 0;
+        $total_discount_given = $totals->total_discount ?? 0;
+        $total_product_sale_amount = $totals->total_amount ?? 0;
 
         $reject_product_count_query = Product::where(['request_status' => 2, 'user_id' => $seller_id, 'added_by' => 'seller']);
         $reject_product_count = self::create_date_wise_common_filter($reject_product_count_query, $date_type, $from, $to)->count();

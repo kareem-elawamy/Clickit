@@ -287,24 +287,22 @@ class ExpenseTransactionReportController extends Controller
 
     public function expense_transaction_same_month($request, $start_date, $end_date, $month_date, $number, $default_inc)
     {
-        $year_month = date('Y-m', strtotime($start_date));
-        $month = substr(date("F", strtotime("$year_month")), 0, 3);
         $orders = self::getExpenseChartCommonQuery($request)
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%d') as day")
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%d') AS UNSIGNED) as day"),
+                DB::raw("SUM(
+                    CASE WHEN is_shipping_free = 1 AND free_delivery_bearer = 'admin' THEN extra_discount ELSE 0 END +
+                    CASE WHEN coupon_discount_bearer = 'inhouse' THEN discount_amount ELSE 0 END +
+                    IFNULL(refer_and_earn_discount, 0)
+                ) as total_amount")
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%d')"))
+            ->pluck('total_amount', 'day')
+            ->toArray();
 
         $discountAmount = [];
         for ($inc = $default_inc; $inc <= $number; $inc++) {
-            $discountAmount[$inc] = 0;
-            foreach ($orders as $match) {
-                if ($match['day'] == $inc) {
-                    if ($match->is_shipping_free && $match->free_delivery_bearer == 'admin') {
-                        $discountAmount[$inc] += $match->extra_discount; // freeDeliveryDiscount
-                    }
-                    $discountAmount[$inc] += ($match->coupon_discount_bearer == 'inhouse' ? $match->discount_amount : 0); // couponDiscount
-                    $discountAmount[$inc] += $match['refer_and_earn_discount']; // referralDiscount
-                }
-            }
+            $discountAmount[$inc] = $orders[$inc] ?? 0;
         }
 
         return array(
@@ -322,21 +320,21 @@ class ExpenseTransactionReportController extends Controller
         }
 
         $orders = self::getExpenseChartCommonQuery($request)
-            ->selectRaw("*, ((DAYOFWEEK(updated_at) + 5) % 7) as day")
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("DATE_FORMAT(updated_at, '%W') as day_name"),
+                DB::raw("SUM(
+                    CASE WHEN is_shipping_free = 1 AND free_delivery_bearer = 'admin' THEN extra_discount ELSE 0 END +
+                    CASE WHEN coupon_discount_bearer = 'inhouse' THEN discount_amount ELSE 0 END +
+                    IFNULL(refer_and_earn_discount, 0)
+                ) as total_amount")
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%W')"))
+            ->pluck('total_amount', 'day_name')
+            ->toArray();
 
         $discountAmount = [];
         for ($inc = 0; $inc <= $number; $inc++) {
-            $discountAmount[$day_name[$inc]] = 0;
-            foreach ($orders as $match) {
-                if ($match['day'] == $inc) {
-                    if ($match->is_shipping_free && $match->free_delivery_bearer == 'admin') {
-                        $discountAmount[$day_name[$inc]] += $match->extra_discount; // freeDeliveryDiscount
-                    }
-                    $discountAmount[$day_name[$inc]] += ($match->coupon_discount_bearer == 'inhouse' ? $match->discount_amount : 0); // couponDiscount
-                    $discountAmount[$day_name[$inc]] += $match['refer_and_earn_discount']; // referralDiscount
-                }
-            }
+            $discountAmount[$day_name[$inc]] = $orders[$day_name[$inc]] ?? 0;
         }
 
         return array(
@@ -348,47 +346,49 @@ class ExpenseTransactionReportController extends Controller
     {
         $number = 1;
         $dayName = [Carbon::today()->format('l')];
+        
         $orders = self::getExpenseChartCommonQuery($request)
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%W') as day")
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("DATE_FORMAT(updated_at, '%W') as day_name"),
+                DB::raw("SUM(
+                    CASE WHEN is_shipping_free = 1 AND free_delivery_bearer = 'admin' THEN extra_discount ELSE 0 END +
+                    CASE WHEN coupon_discount_bearer = 'inhouse' THEN discount_amount ELSE 0 END +
+                    IFNULL(refer_and_earn_discount, 0)
+                ) as total_amount")
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%W')"))
+            ->pluck('total_amount', 'day_name')
+            ->toArray();
 
+        $discountAmount = [];
         for ($inc = 0; $inc < $number; $inc++) {
-            $discountAmount[$dayName[$inc]] = 0;
-            foreach ($orders as $match) {
-                if ($match['day'] == $dayName[$inc]) {
-                    if ($match->is_shipping_free && $match->free_delivery_bearer == 'admin') {
-                        $discountAmount[$dayName[$inc]] += $match->extra_discount; // freeDeliveryDiscount
-                    }
-                    $discountAmount[$dayName[$inc]] += ($match->coupon_discount_bearer == 'inhouse' ? $match->discount_amount : 0); // couponDiscount
-                    $discountAmount[$dayName[$inc]] += $match['refer_and_earn_discount']; // referralDiscount
-                }
-            }
+            $discountAmount[$dayName[$inc]] = $orders[$dayName[$inc]] ?? 0;
         }
 
         return [
-            'discount_amount' => $discountAmount ?? [],
+            'discount_amount' => $discountAmount,
         ];
     }
 
     public function expense_transaction_same_year($request, $start_date, $end_date, $from_year, $number, $default_inc)
     {
         $orders = self::getExpenseChartCommonQuery($request)
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%m') as month")
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%m') AS UNSIGNED) as month"),
+                DB::raw("SUM(
+                    CASE WHEN is_shipping_free = 1 AND free_delivery_bearer = 'admin' THEN extra_discount ELSE 0 END +
+                    CASE WHEN coupon_discount_bearer = 'inhouse' THEN discount_amount ELSE 0 END +
+                    IFNULL(refer_and_earn_discount, 0)
+                ) as total_amount")
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%m')"))
+            ->pluck('total_amount', 'month')
+            ->toArray();
 
         $discountAmount = [];
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = date("F", strtotime("2023-$inc-01"));
-            $discountAmount[$month] = 0;
-            foreach ($orders as $match) {
-                if ((int)$match['month'] == $inc) {
-                    if ($match->is_shipping_free && $match->free_delivery_bearer == 'admin') {
-                        $discountAmount[$month] += $match->extra_discount; // freeDeliveryDiscount
-                    }
-                    $discountAmount[$month] += ($match->coupon_discount_bearer == 'inhouse' ? $match->discount_amount : 0); // couponDiscount
-                    $discountAmount[$month] += $match['refer_and_earn_discount']; // referralDiscount
-                }
-            }
+            $discountAmount[$month] = $orders[$inc] ?? 0;
         }
 
         return [
@@ -399,21 +399,21 @@ class ExpenseTransactionReportController extends Controller
     public function expense_transaction_different_year($request, $start_date, $end_date, $from_year, $to_year): array
     {
         $orders = self::getExpenseChartCommonQuery($request)
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%Y') as year")
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%Y') AS UNSIGNED) as year"),
+                DB::raw("SUM(
+                    CASE WHEN is_shipping_free = 1 AND free_delivery_bearer = 'admin' THEN extra_discount ELSE 0 END +
+                    CASE WHEN coupon_discount_bearer = 'inhouse' THEN discount_amount ELSE 0 END +
+                    IFNULL(refer_and_earn_discount, 0)
+                ) as total_amount")
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%Y')"))
+            ->pluck('total_amount', 'year')
+            ->toArray();
 
         $discountAmount = [];
         for ($inc = $from_year; $inc <= $to_year; $inc++) {
-            $discountAmount[$inc] = 0;
-            foreach ($orders as $match) {
-                if ($match['year'] == $inc) {
-                    if ($match->is_shipping_free && $match->free_delivery_bearer == 'admin') {
-                        $discountAmount[$inc] += $match->extra_discount; // freeDeliveryDiscount
-                    }
-                    $discountAmount[$inc] += ($match->coupon_discount_bearer == 'inhouse' ? $match->discount_amount : 0); // couponDiscount
-                    $discountAmount[$inc] += $match['refer_and_earn_discount']; // referralDiscount
-                }
-            }
+            $discountAmount[$inc] = $orders[$inc] ?? 0;
         }
 
         return [

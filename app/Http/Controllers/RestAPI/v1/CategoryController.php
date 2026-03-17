@@ -70,9 +70,13 @@ class CategoryController extends Controller
         ], 200);
     }
 
-    public function find_what_you_need()
+    public function find_what_you_need(Request $request)
     {
+        $limit = $request->get('limit', 10);
+        $offset = $request->get('offset', 1);
+
         $find_what_you_need_categories = Category::where('parent_id', 0)
+            ->whereHas('childes')
             ->with(['childes' => function ($query) {
                 $query->withCount(['subCategoryProduct' => function ($query) {
                     return $query->active();
@@ -81,23 +85,16 @@ class CategoryController extends Controller
             ->withCount(['product' => function ($query) {
                 return $query->active();
             }])
-            ->get()->toArray();
+            ->paginate($limit, ['*'], 'page', $offset);
 
         $get_categories = [];
-        foreach ($find_what_you_need_categories as $category) {
-            $slice = array_slice($category['childes'], 0, 4);
-            $category['childes'] = $slice;
-            $get_categories[] = $category;
+        foreach ($find_what_you_need_categories->items() as $category) {
+            $categoryArray = $category->toArray();
+            $categoryArray['childes'] = array_slice($categoryArray['childes'], 0, 4);
+            $get_categories[] = $categoryArray;
         }
 
-        $final_category = [];
-        foreach ($get_categories as $category) {
-            if (count($category['childes']) > 0) {
-                $final_category[] = $category;
-            }
-        }
-
-        return response()->json(['find_what_you_need' => $final_category], 200);
+        return response()->json(['find_what_you_need' => $get_categories], 200);
     }
 
 }

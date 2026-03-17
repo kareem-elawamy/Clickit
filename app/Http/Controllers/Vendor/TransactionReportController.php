@@ -305,44 +305,47 @@ class TransactionReportController extends Controller
             $customer_info = $customer->f_name . ' ' . $customer->l_name;
         }
 
-        $transactions = self::order_transaction_table_data_filter($request)->latest('updated_at')->get();
+        $transactionsQuery = self::order_transaction_table_data_filter($request);
 
-        $total_ordered_product_price = 0;
-        $total_product_discount = 0;
-        $total_coupon_discount = 0;
-        $total_referral_discount = 0;
-        $total_discounted_amount = 0;
-        $total_tax = 0;
-        $total_delivery_charge = 0;
-        $total_order_amount = 0;
-        $total_admin_discount = 0;
-        $total_seller_discount = 0;
-        $total_admin_commission = 0;
-        $total_admin_net_income = 0;
+        $totals = $transactionsQuery->select(
+            DB::raw('SUM(order_details_sum_price) as total_ordered_product_price'),
+            DB::raw('SUM(order_details_sum_discount) as total_product_discount'),
+            DB::raw('SUM(discount_amount) as total_coupon_discount'),
+            DB::raw('SUM(refer_and_earn_discount) as total_referral_discount'),
+            DB::raw('SUM(order_details_sum_price - order_details_sum_discount - (CASE WHEN coupon_type != "free_delivery" THEN discount_amount ELSE 0 END)) as total_discounted_amount'),
+            DB::raw('SUM(tax) as total_tax'),
+            DB::raw('SUM(shipping_cost) as total_delivery_charge'),
+            DB::raw('SUM(order_amount) as total_order_amount'),
+            DB::raw('SUM(CASE WHEN coupon_discount_bearer = "inhouse" AND discount_type = "coupon_discount" THEN discount_amount ELSE 0 END + CASE WHEN is_shipping_free = 1 AND free_delivery_bearer = "admin" THEN extra_discount ELSE 0 END) as total_admin_discount'),
+            DB::raw('SUM(CASE WHEN coupon_discount_bearer = "seller" AND discount_type = "coupon_discount" THEN discount_amount ELSE 0 END + CASE WHEN is_shipping_free = 1 AND free_delivery_bearer = "seller" THEN extra_discount ELSE 0 END) as total_seller_discount'),
+            DB::raw('SUM(admin_commission) as total_admin_commission'),
+            DB::raw('SUM(CASE WHEN shipping_responsibility="sellerwise_shipping" AND delivery_type="self_delivery" AND delivery_man_id IS NOT NULL AND seller_is="seller" THEN deliveryman_charge ELSE 0 END) as total_deliveryman_incentive')
+        )
+        ->join('orders', 'order_transactions.order_id', '=', 'orders.id')
+        ->leftJoin('coupons', 'orders.coupon_code', '=', 'coupons.code')
+        ->first();
+
+        $total_ordered_product_price = $totals->total_ordered_product_price ?? 0;
+        $total_product_discount = $totals->total_product_discount ?? 0;
+        $total_coupon_discount = $totals->total_coupon_discount ?? 0;
+        $total_referral_discount = $totals->total_referral_discount ?? 0;
+        $total_discounted_amount = $totals->total_discounted_amount ?? 0;
+        $total_tax = $totals->total_tax ?? 0;
+        $total_delivery_charge = $totals->total_delivery_charge ?? 0;
+        $total_order_amount = $totals->total_order_amount ?? 0;
+        $total_admin_discount = $totals->total_admin_discount ?? 0;
+        $total_seller_discount = $totals->total_seller_discount ?? 0;
+        $total_admin_commission = $totals->total_admin_commission ?? 0;
+        $total_deliveryman_incentive = $totals->total_deliveryman_incentive ?? 0;
+        
+        $transactionsForNetIncome = self::order_transaction_table_data_filter($request)->get();
         $total_seller_net_income = 0;
-        $total_deliveryman_incentive = 0;
-        foreach ($transactions as $transaction) {
+        foreach ($transactionsForNetIncome as $transaction) {
             if ($transaction->order) {
                 $admin_coupon_discount = ($transaction->order->coupon_discount_bearer == 'inhouse' && $transaction->order->discount_type == 'coupon_discount') ? $transaction->order->discount_amount : 0;
                 $admin_shipping_discount = ($transaction->order->is_shipping_free && $transaction->order->free_delivery_bearer == 'admin') ? $transaction->order->extra_discount : 0;
-
-                $seller_coupon_discount = ($transaction->order->coupon_discount_bearer == 'seller' && $transaction->order->discount_type == 'coupon_discount') ? $transaction->order->discount_amount : 0;
                 $seller_shipping_discount = ($transaction->order->is_shipping_free && $transaction->order->free_delivery_bearer == 'seller') ? $transaction->order->extra_discount : 0;
-
-                $total_ordered_product_price += $transaction->orderDetails[0]->order_details_sum_price;
-                $total_product_discount += $transaction->orderDetails[0]->order_details_sum_discount;
-                $total_coupon_discount += $transaction->order->discount_amount;
-                $total_referral_discount += $transaction?->order?->refer_and_earn_discount ?? 0;
-                $total_discounted_amount += $transaction->orderDetails[0]->order_details_sum_price - $transaction->orderDetails[0]->order_details_sum_discount - (isset($transaction->order->coupon) && $transaction->order->coupon->coupon_type != 'free_delivery' ? $transaction->order->discount_amount : 0);
-                $total_tax += $transaction->tax;
-                $total_delivery_charge += $transaction->order->shipping_cost;
-                $total_order_amount += $transaction->order->order_amount;
-
-                $total_admin_discount += $admin_coupon_discount + $admin_shipping_discount;
-                $total_seller_discount += $seller_coupon_discount + $seller_shipping_discount;
-                $total_admin_commission += $transaction->admin_commission;
-                $total_deliveryman_incentive += ($transaction->order->shipping_responsibility == 'sellerwise_shipping' && $transaction->order->delivery_type == 'self_delivery' && $transaction->order->delivery_man_id && $transaction->order->seller_is == 'seller') ? $transaction->order->deliveryman_charge : 0;
-
+                
                 // seller net income calculation start
                 $seller_net_income = 0;
                 if (isset($transaction->order->deliveryMan) && $transaction->order->deliveryMan->seller_id != '0') {
@@ -368,10 +371,9 @@ class TransactionReportController extends Controller
                         $seller_net_income += $transaction->order->free_delivery_bearer == 'admin' ? $admin_shipping_discount : 0;
                         $seller_shipping_discount = 0;
                     }
-                    $seller_net_income += $total_referral_discount;
+                    $seller_net_income += $transaction?->order?->refer_and_earn_discount ?? 0;
                 }
                 $total_seller_net_income += $seller_net_income - $seller_shipping_discount;
-                // seller net income calculation end
             }
         }
 

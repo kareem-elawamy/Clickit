@@ -13,7 +13,7 @@
                 {{translate('store_Name')}} - {{$data['vendor']?->shop?->name}}
                 <br>
             @endif
-            {{translate('total_Withdraw_Request').' '.'-'.' '.count($data['withdraw_request'])}}
+            {{translate('total_Withdraw_Request').' '.'-'.' '.($data['total_count'] ?? count($data['withdraw_request']))}}
             <br>
             @if($data['filter']=='all')
                 {{translate('total_Pending').' '.'-'.' '.$data['pending']}}

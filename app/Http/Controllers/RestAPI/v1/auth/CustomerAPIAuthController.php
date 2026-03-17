@@ -194,7 +194,7 @@ class CustomerAPIAuthController extends Controller
                     $code = 'login_temp_blocked';
                     $errorMsg = translate('too_many_attempts._please_try_again_after_') . CarbonInterval::seconds($time)->cascade()->forHumans();
                 }
-                $user = $this->customerRepo->getByIdentity(filters: ['identity' => $request['email_or_phone']]);
+                //$user = $this->customerRepo->getByIdentity(filters: ['identity' => $request['email_or_phone']]);
                 $this->customerRepo->updateWhere(params: ['id' => $user['id']], data: [
                     'login_hit_count' => ($user['login_hit_count'] + 1),
                     'updated_at' => now()

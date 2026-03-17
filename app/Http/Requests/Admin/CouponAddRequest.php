@@ -11,9 +11,9 @@ class CouponAddRequest extends FormRequest
      *
      * @return bool
      */
-    public function authorize():bool
+    public function authorize(): bool
     {
-        return true;
+        return auth('admin')->check();
     }
 
     /**

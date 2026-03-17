@@ -6,6 +6,7 @@ use App\Contracts\Repositories\AdminRepositoryInterface;
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
 use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
+use App\Models\Product; // PERF-27
 use App\Contracts\Repositories\ReviewRepositoryInterface;
 use App\Http\Controllers\BaseController;
 use App\Traits\FileManagerTrait;
@@ -50,7 +51,8 @@ class InhouseShopController extends BaseController
         $freeDeliveryStatus = $this->businessSettingRepo->getFirstWhere(params: ['type' => 'free_delivery_status']);
         $freeDeliveryOverAmount = $this->businessSettingRepo->getFirstWhere(params: ['type' => 'free_delivery_over_amount']);
 
-        $allProductids = $this->productRepo->getListWithScope(filters: ['added_by' => 'in_house'], dataLimit: 'all')->pluck('id')->toArray();
+        // PERF-27: Use direct DB-level pluck to prevent memory exhaustion
+        $allProductids = Product::where('added_by', 'in_house')->pluck('id')->toArray();
 
         $filters = [
             'order_status' => 'all',

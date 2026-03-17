@@ -279,16 +279,10 @@ class SellerController extends Controller
             'status' => 'disburse'
         ])->select(
             DB::raw('IFNULL(sum(seller_amount),0) as sums'),
-            DB::raw('YEAR(created_at) year, MONTH(created_at) month')
-        )->whereBetween('created_at', [$from, $to])->groupby('year', 'month')->get()->toArray();
+            DB::raw('MONTH(created_at) as month')
+        )->whereBetween('created_at', [$from, $to])->groupby('month')->pluck('sums', 'month')->toArray();
         for ($inc = 1; $inc <= 12; $inc++) {
-            $default = 0;
-            foreach ($seller_earnings as $match) {
-                if ($match['month'] == $inc) {
-                    $default = $match['sums'];
-                }
-            }
-            $seller_data .= $default . ',';
+            $seller_data .= ($seller_earnings[$inc] ?? 0) . ',';
         }
 
         return response()->json($seller_data, 200);
@@ -315,16 +309,10 @@ class SellerController extends Controller
             'status' => 'disburse'
         ])->select(
             DB::raw('IFNULL(sum(admin_commission),0) as sums'),
-            DB::raw('YEAR(created_at) year, MONTH(created_at) month')
-        )->whereBetween('created_at', [$from, $to])->groupby('year', 'month')->get()->toArray();
+            DB::raw('MONTH(created_at) as month')
+        )->whereBetween('created_at', [$from, $to])->groupby('month')->pluck('sums', 'month')->toArray();
         for ($inc = 1; $inc <= 12; $inc++) {
-            $default = 0;
-            foreach ($commission_earnings as $match) {
-                if ($match['month'] == $inc) {
-                    $default = $match['sums'];
-                }
-            }
-            $commission_data .= $default . ',';
+            $commission_data .= ($commission_earnings[$inc] ?? 0) . ',';
         }
 
         return response()->json($commission_data, 200);

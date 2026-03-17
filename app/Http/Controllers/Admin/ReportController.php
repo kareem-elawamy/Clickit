@@ -222,44 +222,33 @@ class ReportController extends Controller
         //earn from order
         $earnFromOrders = Order::where(['order_status' => 'delivered', 'seller_is' => $type])
             ->whereBetween('updated_at', [Carbon::now()->startOfDay(), Carbon::now()->endOfDay()])
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%W') as day")
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("DATE_FORMAT(updated_at, '%W') as day"),
+                DB::raw('SUM(order_amount + discount_amount + refer_and_earn_discount + shipping_cost - CASE WHEN is_shipping_free=1 AND free_delivery_bearer="' . $type . '" THEN shipping_cost ELSE 0 END) as total_earn')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%W')"))
+            ->pluck('total_earn', 'day')
+            ->toArray();
 
         $earnFromOrder = [];
         for ($inc = 0; $inc < 1; $inc++) {
-            $earnFromOrder[$dayName[$inc]] = 0;
-            foreach ($earnFromOrders as $order) {
-                if ($order['day'] == $dayName[$inc]) {
-                    $earnFromOrder[$dayName[$inc]] += $order['order_amount'];
-                    $earnFromOrder[$dayName[$inc]] += $order['discount_amount'];
-                    $earnFromOrder[$dayName[$inc]] += $order['refer_and_earn_discount'];
-                    $earnFromOrder[$dayName[$inc]] += $order['shipping_cost'];
-                    $earnFromOrder[$dayName[$inc]] -= $type == $order->free_delivery_bearer && $order['is_shipping_free'] == 1 ? $order['shipping_cost'] : 0;
-                }
-            }
+            $earnFromOrder[$dayName[$inc]] = $earnFromOrders[$dayName[$inc]] ?? 0;
         }
 
         //shipping earn
         $shippingEarns = Order::where(['order_type' => 'default_type', 'order_status' => 'delivered'])
             ->whereBetween('updated_at', [Carbon::now()->startOfDay(), Carbon::now()->endOfDay()])
-            ->orderBy('updated_at', 'desc')
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%W') as day")
-            ->get();
+            ->select(
+                DB::raw("DATE_FORMAT(updated_at, '%W') as day"),
+                DB::raw('SUM(CASE WHEN "' . $type . '" = "admin" AND (seller_is = "admin" OR shipping_responsibility = "inhouse_shipping") THEN shipping_cost WHEN "' . $type . '" = "seller" AND shipping_responsibility != "inhouse_shipping" THEN shipping_cost ELSE 0 END) as total_shipping')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%W')"))
+            ->pluck('total_shipping', 'day')
+            ->toArray();
 
         $shippingEarn = [];
         for ($increment = 0; $increment < $number; $increment++) {
-            $shippingEarn[$dayName[$increment]] = 0;
-            foreach ($shippingEarns as $match) {
-                if ($match['day'] == $dayName[$increment]) {
-                    if ($type == 'admin' && ($match['seller_is'] == 'admin' || $match['shipping_responsibility'] == 'inhouse_shipping')) {
-                        $shippingEarn[$dayName[$increment]] += $match['shipping_cost'];
-                    }
-
-                    if ($type == 'seller' && $match['shipping_responsibility'] != 'inhouse_shipping') {
-                        $shippingEarn[$dayName[$increment]] += $match['shipping_cost'];
-                    }
-                }
-            }
+            $shippingEarn[$dayName[$increment]] = $shippingEarns[$dayName[$increment]] ?? 0;
         }
 
         //deliveryman incentives
@@ -330,24 +319,17 @@ class ReportController extends Controller
         //discount_given
         $discountGivenQuery = Order::where(['order_type' => 'default_type', 'order_status' => 'delivered'])
             ->whereBetween('updated_at', [Carbon::now()->startOfDay(), Carbon::now()->endOfDay()])
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%W') as day")
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("DATE_FORMAT(updated_at, '%W') as day"),
+                DB::raw('SUM(CASE WHEN ("' . $type . '" = "admin" AND coupon_discount_bearer = "inhouse" AND discount_type = "coupon_discount") OR ("' . $type . '" = "seller" AND coupon_discount_bearer = "seller" AND discount_type = "coupon_discount") THEN discount_amount ELSE 0 END + CASE WHEN is_shipping_free = 1 AND free_delivery_bearer = "admin" THEN extra_discount ELSE 0 END + refer_and_earn_discount) as total_discount')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%W')"))
+            ->pluck('total_discount', 'day')
+            ->toArray();
 
         $discountGiven = [];
         for ($increment = 0; $increment < $number; $increment++) {
-            $discountGiven[$dayName[$increment]] = 0;
-            foreach ($discountGivenQuery as $order) {
-                if ($order['day'] === $dayName[$increment]) {
-                    $couponDiscountBearer = $order['coupon_discount_bearer'] == 'inhouse' ? 'admin' : 'seller';
-                    if ($type == $couponDiscountBearer && $order->discount_type === 'coupon_discount') {
-                        $discountGiven[$dayName[$increment]] += $order->discount_amount;
-                    }
-                    if ((int)$order->is_shipping_free === 1 && $order->free_delivery_bearer === 'admin') {
-                        $discountGiven[$dayName[$increment]] += $order->extra_discount;
-                    }
-                    $discountGiven[$dayName[$increment]] += $order->refer_and_earn_discount;
-                }
-            }
+            $discountGiven[$dayName[$increment]] = $discountGivenQuery[$dayName[$increment]] ?? 0;
         }
 
         //vat/tax
@@ -800,46 +782,36 @@ class ReportController extends Controller
         $earnFromOrders = Order::where(['order_status' => 'delivered', 'seller_is' => $type])
             ->whereDate('updated_at', '>=', $start_date)
             ->whereDate('updated_at', '<=', $end_date)
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%m') as month")
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%m') AS UNSIGNED) as month"),
+                DB::raw('SUM(order_amount + CASE WHEN "' . $type . '" != coupon_discount_bearer THEN discount_amount ELSE 0 END + refer_and_earn_discount - CASE WHEN free_delivery_bearer="' . $type . '" AND is_shipping_free=1 THEN shipping_cost ELSE 0 END) as total_earn')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%m')"))
+            ->pluck('total_earn', 'month')
+            ->toArray();
 
         $earnFromOrder = [];
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = substr(date("F", strtotime("2023-$inc-01")), 0, 3);
-            $earnFromOrder[$month] = 0;
-            foreach ($earnFromOrders as $order) {
-                if ($order['month'] == $inc) {
-                    $earnFromOrder[$month] += $order['order_amount'];
-                    $earnFromOrder[$month] += $type != $order->coupon_discount_bearer ? $order['discount_amount'] : 0;
-                    $earnFromOrder[$month] += $order['refer_and_earn_discount'];
-                    $earnFromOrder[$month] -= $type == $order->free_delivery_bearer && $order['is_shipping_free'] == 1 ? $order['shipping_cost'] : 0;
-                }
-            }
+            $earnFromOrder[$month] = $earnFromOrders[$inc] ?? 0;
         }
 
         //shipping earn
         $shippingEarns = Order::where(['order_status' => 'delivered'])
             ->whereDate('updated_at', '>=', $start_date)
             ->whereDate('updated_at', '<=', $end_date)
-            ->orderBy('updated_at', 'desc')
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%m') as month")
-            ->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%m') AS UNSIGNED) as month"),
+                DB::raw('SUM(CASE WHEN "' . $type . '" = "admin" AND (seller_is = "admin" OR shipping_responsibility = "inhouse_shipping") THEN shipping_cost WHEN "' . $type . '" = "seller" AND shipping_responsibility != "inhouse_shipping" THEN shipping_cost ELSE 0 END) as total_shipping')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%m')"))
+            ->pluck('total_shipping', 'month')
+            ->toArray();
 
         $shippingEarn = [];
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = substr(date("F", strtotime("2023-$inc-01")), 0, 3);
-            $shippingEarn[$month] = 0;
-            foreach ($shippingEarns as $match) {
-                if ((int)$match['month'] == $inc) {
-                    if ($type == 'admin' && ($match['seller_is'] == 'admin' || $match['shipping_responsibility'] == 'inhouse_shipping')) {
-                        $shippingEarn[$month] += $match['shipping_cost'];
-                    }
-
-                    if ($type == 'seller' && $match['shipping_responsibility'] != 'inhouse_shipping') {
-                        $shippingEarn[$month] += $match['shipping_cost'];
-                    }
-                }
-            }
+            $shippingEarn[$month] = $shippingEarns[$inc] ?? 0;
         }
 
         //deliveryman incentive
@@ -851,39 +823,37 @@ class ReportController extends Controller
                     $query->where('seller_id', '!=', '0');
                 });
         })
-            ->selectRaw('sum(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility=' . ($type == 'seller' ? '"sellerwise_shipping" AND seller_is="seller"' : '"inhouse_shipping" OR seller_is="admin"') . ' THEN deliveryman_charge ELSE 0 END) as deliveryman_incentive, YEAR(updated_at) year, MONTH(updated_at) month')
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%m') AS UNSIGNED) as month"),
+                DB::raw('SUM(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility=' . ($type == 'seller' ? '"sellerwise_shipping" AND seller_is="seller"' : '"inhouse_shipping" OR seller_is="admin"') . ' THEN deliveryman_charge ELSE 0 END) as deliveryman_incentive')
+            )
             ->where(['order_type' => 'default_type', 'order_status' => 'delivered'])
             ->whereDate('updated_at', '>=', $start_date)
             ->whereDate('updated_at', '<=', $end_date)
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%M')"))
-            ->latest('updated_at')->get();
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%m')"))
+            ->pluck('deliveryman_incentive', 'month')
+            ->toArray();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = substr(date("F", strtotime("2023-$inc-01")), 0, 3);
-            $deliveryman_incentive[$month] = 0;
-            foreach ($deliveryman_incentives as $match) {
-                if ($match['month'] == $inc) {
-                    $deliveryman_incentive[$month] = $match['deliveryman_incentive'];
-                }
-            }
+            $deliveryman_incentive[$month] = $deliveryman_incentives[$inc] ?? 0;
         }
 
         //commission
         $commissions = Order::where(['seller_is' => 'seller', 'order_status' => 'delivered'])
             ->whereDate('updated_at', '>=', $start_date)
             ->whereDate('updated_at', '<=', $end_date)
-            ->selectRaw('sum(admin_commission) as commission, YEAR(updated_at) year, MONTH(updated_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%M')"))
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%m') AS UNSIGNED) as month"),
+                DB::raw('SUM(admin_commission) as commission')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%m')"))
+            ->pluck('commission', 'month')
+            ->toArray();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = substr(date("F", strtotime("2023-$inc-01")), 0, 3);
-            $commission[$month] = 0;
-            foreach ($commissions as $match) {
-                if ($match['month'] == $inc) {
-                    $commission[$month] = $match['commission'];
-                }
-            }
+            $commission[$month] = $commissions[$inc] ?? 0;
         }
 
         //admin bearer free shipping
@@ -908,61 +878,52 @@ class ReportController extends Controller
         $discountGivenQuery = Order::where(['order_status' => 'delivered'])
             ->whereDate('updated_at', '>=', $start_date)
             ->whereDate('updated_at', '<=', $end_date)
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%m') as month")
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%m') AS UNSIGNED) as month"),
+                DB::raw('SUM(CASE WHEN ("' . $type . '" = "admin" AND coupon_discount_bearer = "inhouse" AND discount_type = "coupon_discount") OR ("' . $type . '" = "seller" AND coupon_discount_bearer = "seller" AND discount_type = "coupon_discount") THEN discount_amount ELSE 0 END + CASE WHEN is_shipping_free = 1 AND free_delivery_bearer = "' . $type . '" THEN extra_discount ELSE 0 END + CASE WHEN "' . $type . '" = "admin" THEN refer_and_earn_discount ELSE 0 END) as total_discount')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%m')"))
+            ->pluck('total_discount', 'month')
+            ->toArray();
 
         $discountGiven = [];
         for ($increment = $default_inc; $increment <= $number; $increment++) {
             $month = substr(date("F", strtotime("2023-$increment-01")), 0, 3);
-            $discountGiven[$month] = 0;
-            foreach ($discountGivenQuery as $order) {
-                if ($order['month'] == $increment) {
-                    $couponDiscountBearer = $order['coupon_discount_bearer'] == 'inhouse' ? 'admin' : 'seller';
-                    if ($type == $couponDiscountBearer && $order->discount_type === 'coupon_discount') {
-                        $discountGiven[$month] += $order->discount_amount;
-                    }
-                    if ((int)$order->is_shipping_free === 1 && $type == $order->free_delivery_bearer) {
-                        $discountGiven[$month] += $order->extra_discount;
-                    }
-                    $discountGiven[$month] += $type == 'admin' ? $order->refer_and_earn_discount : 0;
-                }
-            }
+            $discountGiven[$month] = $discountGivenQuery[$increment] ?? 0;
         }
 
         //vat/tax
         $taxes = OrderTransaction::where(['status' => 'disburse', 'seller_is' => $type])
             ->whereDate('updated_at', '>=', $start_date)
             ->whereDate('updated_at', '<=', $end_date)
-            ->selectRaw('sum(tax) as total_tax, YEAR(updated_at) year, MONTH(updated_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%M')"))
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%m') AS UNSIGNED) as month"),
+                DB::raw('SUM(tax) as total_tax')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%m')"))
+            ->pluck('total_tax', 'month')
+            ->toArray();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = substr(date("F", strtotime("2023-$inc-01")), 0, 3);
-            $total_tax[$month] = 0;
-            foreach ($taxes as $match) {
-                if ($match['month'] == $inc) {
-                    $total_tax[$month] = $match['total_tax'];
-                }
-            }
+            $total_tax[$month] = $taxes[$inc] ?? 0;
         }
 
         //refund given
         $refunds = RefundTransaction::where(['payment_status' => 'paid', 'paid_by' => $type])
             ->whereDate('updated_at', '>=', $start_date)
             ->whereDate('updated_at', '<=', $end_date)
-            ->selectRaw('sum(amount) as refund_amount, YEAR(updated_at) year, MONTH(updated_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%M')"))
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%m') AS UNSIGNED) as month"),
+                DB::raw('SUM(amount) as refund_amount')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%m')"))
+            ->pluck('refund_amount', 'month')
+            ->toArray();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = substr(date("F", strtotime("2023-$inc-01")), 0, 3);
-            $refund_given[$month] = 0;
-            foreach ($refunds as $match) {
-                if ($match['month'] == $inc) {
-                    $refund_given[$month] = $match['refund_amount'];
-                }
-            }
+            $refund_given[$month] = $refunds[$inc] ?? 0;
         }
 
         return [
@@ -983,45 +944,34 @@ class ReportController extends Controller
         $earnFromOrders = Order::where(['order_status' => 'delivered', 'seller_is' => $type])
             ->whereDate('updated_at', '>=', $start_date)
             ->whereDate('updated_at', '<=', $end_date)
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%Y') as year")
-            ->latest('updated_at')->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%Y') AS UNSIGNED) as year"),
+                DB::raw('SUM(order_amount + CASE WHEN "' . $type . '" != coupon_discount_bearer THEN discount_amount ELSE 0 END + refer_and_earn_discount - CASE WHEN free_delivery_bearer="' . $type . '" AND is_shipping_free=1 THEN shipping_cost ELSE 0 END) as total_earn')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%Y')"))
+            ->pluck('total_earn', 'year')
+            ->toArray();
 
         $earnFromOrder = [];
         for ($inc = $from_year; $inc <= $to_year; $inc++) {
-            $earnFromOrder[$inc] = 0;
-            foreach ($earnFromOrders as $order) {
-                if ($order['year'] == $inc) {
-                    $earnFromOrder[$inc] += $order['order_amount'];
-                    $earnFromOrder[$inc] += $order['discount_amount'];
-                    $earnFromOrder[$inc] += $order['refer_and_earn_discount'];
-                    $earnFromOrder[$inc] -= $order['shipping_cost'];
-                    $earnFromOrder[$inc] += $order['is_shipping_free'] == 1 ? $order['shipping_cost'] : 0;
-                }
-            }
+            $earnFromOrder[$inc] = $earnFromOrders[$inc] ?? 0;
         }
 
         //shipping earn for custom same year
         $shippingEarns = Order::where(['order_type' => 'default_type', 'order_status' => 'delivered'])
             ->whereDate('updated_at', '>=', $start_date)
             ->whereDate('updated_at', '<=', $end_date)
-            ->orderBy('updated_at', 'desc')
-            ->selectRaw("*, DATE_FORMAT(updated_at, '%Y') as year")
-            ->get();
+            ->select(
+                DB::raw("CAST(DATE_FORMAT(updated_at, '%Y') AS UNSIGNED) as year"),
+                DB::raw('SUM(CASE WHEN "' . $type . '" = "admin" AND (seller_is = "admin" OR shipping_responsibility = "inhouse_shipping") THEN shipping_cost WHEN "' . $type . '" = "seller" AND shipping_responsibility != "inhouse_shipping" THEN shipping_cost ELSE 0 END) as total_shipping')
+            )
+            ->groupBy(DB::raw("DATE_FORMAT(updated_at, '%Y')"))
+            ->pluck('total_shipping', 'year')
+            ->toArray();
 
         $shippingEarn = [];
         for ($inc = $from_year; $inc <= $to_year; $inc++) {
-            $shippingEarn[$inc] = 0;
-            foreach ($shippingEarns as $match) {
-                if ((int)$match['year'] == $inc) {
-                    if ($type == 'admin' && ($match['seller_is'] == 'admin' || $match['shipping_responsibility'] == 'inhouse_shipping')) {
-                        $shippingEarn[$inc] += $match['shipping_cost'];
-                    }
-
-                    if ($type == 'seller' && $match['shipping_responsibility'] != 'inhouse_shipping') {
-                        $shippingEarn[$inc] += $match['shipping_cost'];
-                    }
-                }
-            }
+            $shippingEarn[$inc] = $shippingEarns[$inc] ?? 0;
         }
 
         //deliveryman incentive

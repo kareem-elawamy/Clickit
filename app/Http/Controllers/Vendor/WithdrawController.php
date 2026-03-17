@@ -162,19 +162,30 @@ class WithdrawController extends BaseController
     {
         $vendorId = auth('seller')->id();
         $vendor = $this->vendorRepo->getFirstWhere(params: ['id' => $vendorId]);
-        $withdrawRequests = $this->withdrawRequestRepo->getListWhere(
-            orderBy: ['id' => 'desc'],
-            searchValue: $request['searchValue'],
-            filters: [
-                'vendorId' => $vendorId,
-                'status' => $request['status']
-            ],
-            relations: ['seller'],
-            dataLimit: 'all'
-        );
-        $pendingRequest = $withdrawRequests->where('approved', 0)->count();
-        $approvedRequest = $withdrawRequests->where('approved', 1)->count();
-        $deniedRequest = $withdrawRequests->where('approved', 2)->count();
+        
+        $withdrawRequestsQuery = \App\Models\WithdrawRequest::with(['seller'])
+            ->where('vendor_id', $vendorId)
+            ->when($request['status'] && $request['status'] != 'all', function($q) use ($request) {
+                $statusMap = ['pending' => 0, 'approved' => 1, 'denied' => 2];
+                if (isset($statusMap[$request['status']])) {
+                    $q->where('approved', $statusMap[$request['status']]);
+                }
+            })
+            ->when($request['searchValue'], function($q) use ($request) {
+                $q->where(function($query) use ($request) {
+                    $query->where('id', 'like', "%{$request['searchValue']}%")
+                          ->orWhere('amount', 'like', "%{$request['searchValue']}%");
+                });
+            })
+            ->orderBy('id', 'desc');
+
+        $pendingRequest = (clone $withdrawRequestsQuery)->where('approved', 0)->count();
+        $approvedRequest = (clone $withdrawRequestsQuery)->where('approved', 1)->count();
+        $deniedRequest = (clone $withdrawRequestsQuery)->where('approved', 2)->count();
+        $totalCount = $withdrawRequestsQuery->count();
+
+        $withdrawRequests = $withdrawRequestsQuery->cursor();
+
         $data = [
             'data-from' => 'vendor',
             'vendor' => $vendor,
@@ -184,6 +195,7 @@ class WithdrawController extends BaseController
             'pending' => $pendingRequest,
             'approved' => $approvedRequest,
             'denied' => $deniedRequest,
+            'total_count' => $totalCount,
         ];
         return Excel::download(export: new VendorWithdrawRequest($data), fileName: 'Vendor-Withdraw-Request.xlsx');
     }

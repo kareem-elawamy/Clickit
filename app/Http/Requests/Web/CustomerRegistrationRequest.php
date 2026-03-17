@@ -21,7 +21,7 @@ class CustomerRegistrationRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return true;
+        return true; // Public endpoint
     }
 
     public function rules(): array

@@ -218,7 +218,7 @@ class HomeController extends Controller
         $justForYouProducts = $this->cacheHomePageJustForYouProductList();
 
         if (auth('customer')->check()) {
-            $orders = $this->order->where(['customer_id' => auth('customer')->id()])->with(['details'])->get();
+            $orders = $this->order->where(['customer_id' => auth('customer')->id()])->with(['details'])->latest()->take(10)->get();
 
             if ($orders) {
                 $orders = $orders?->map(function ($order) {

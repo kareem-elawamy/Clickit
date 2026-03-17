@@ -13,7 +13,7 @@ class LoyaltyExchangeCurrencyRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return true;
+        return auth('customer')->check() || auth()->check();
     }
 
     public function rules(): array

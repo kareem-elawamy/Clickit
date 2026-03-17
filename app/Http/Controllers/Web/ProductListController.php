@@ -202,20 +202,16 @@ class ProductListController extends Controller
         $tagProductAuthors = $this->getPageSelectedDataByType(request: $request, type: 'author');
         $tagBrand = $this->getPageSelectedDataByType(request: $request, type: 'brand');
 
-        $productListData = ProductManager::getProductListData(request: $request);
+        if ($request['ratings'] != null) {
+            $productListData = $productListData->whereHas('rating', function ($query) use ($request) {
+                return $query->where('average', '>=', $request['ratings'])
+                    ->where('average', '<', $request['ratings'] + 1);
+            });
+        }
+
         $products = $productListData->paginate($singlePageProductCount)->appends($data);
         $paginate_count = ceil(($products->total() / $singlePageProductCount));
         $getProductIds = $products->pluck('id')->toArray();
-
-        if ($request['ratings'] != null) {
-            $products = $products->map(function ($product) use ($request) {
-                $product->rating = $product->rating->pluck('average')[0];
-                return $product;
-            });
-            $products = $products->where('rating', '>=', $request['ratings'])
-                ->where('rating', '<', $request['ratings'] + 1)
-                ->paginate($singlePageProductCount)->appends($data);
-        }
 
         $allProductsColorList = ProductManager::getProductsColorsArray();
 

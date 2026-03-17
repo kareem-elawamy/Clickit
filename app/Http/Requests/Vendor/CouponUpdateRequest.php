@@ -13,7 +13,7 @@ class CouponUpdateRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return true;
+        return auth('seller')->check();
     }
 
     public function rules(): array
