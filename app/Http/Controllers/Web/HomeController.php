@@ -118,12 +118,12 @@ class HomeController extends Controller
         $findWhatYouNeedCategoriesData = Cache::remember(FIND_WHAT_YOU_NEED_CATEGORIES_LIST, CACHE_FOR_3_HOURS, function () {
             return $this->category->where('parent_id', 0)
                 ->with(['childes' => function ($query) {
-                    $query->with(['subCategoryProduct' => function ($query) {
+                    $query->withCount(['subCategoryProduct' => function ($query) {
                         return $query->active();
                     }]);
                 }])
-                ->with(['product' => function ($query) {
-                    return $query->active()->withCount(['orderDetails']);
+                ->withCount(['product' => function ($query) {
+                    return $query->active();
                 }])
                 ->get();
         });
@@ -131,11 +131,9 @@ class HomeController extends Controller
         $findWhatYouNeedCategoriesData = CategoryManager::getPriorityWiseCategorySortQuery(query: $findWhatYouNeedCategoriesData);
 
         $findWhatYouNeedCategoriesData->map(function ($category) {
-            $category->product_count = $category->product->count();
-            unset($category->product);
+            $category->product_count = $category->product_count ?? 0;
             $category->childes?->map(function ($sub_category) {
-                $sub_category->subCategoryProduct_count = $sub_category->subCategoryProduct->count();
-                unset($sub_category->subCategoryProduct);
+                $sub_category->subCategoryProduct_count = $sub_category->sub_category_product_count ?? 0;
             });
             return $category;
         });
@@ -181,21 +179,19 @@ class HomeController extends Controller
         });
 
         $bestSellProduct = Product::active()->with([
-            'reviews', 'rating', 'seller.shop',
+            'seller.shop',
             'flashDealProducts.flashDeal',
         ])->withCount(['reviews']);
 
         $orderDetails = Cache::remember(CACHE_ORDER_DETAILS_TABLE, CACHE_FOR_3_HOURS, function () {
-            return OrderDetail::with('product')
-                ->select('product_id', DB::raw('COUNT(product_id) as count'))
+            return OrderDetail::select('product_id', DB::raw('COUNT(product_id) as count'))
                 ->groupBy('product_id')
+                ->orderByRaw('COUNT(product_id) DESC')
+                ->limit(500)
                 ->get();
         });
 
-        $getOrderedProductIds = [];
-        foreach ($orderDetails as $detail) {
-            $getOrderedProductIds[] = $detail['product_id'];
-        }
+        $getOrderedProductIds = $orderDetails->pluck('product_id')->toArray();
         $bestSellProduct = ProductManager::getPriorityWiseBestSellingProductsQuery(query: $bestSellProduct->whereIn('id', $getOrderedProductIds), dataLimit: 10);
 
         $bestSellProduct?->map(function ($product) use ($current_date) {
@@ -346,7 +342,7 @@ class HomeController extends Controller
         $categories = CategoryManager::getCategoriesWithCountingAndPriorityWiseSorting();
         $userId = Auth::guard('customer')->user() ? Auth::guard('customer')->id() : 0;
         $flashDeal = ProductManager::getPriorityWiseFlashDealsProductsQuery(userId: $userId);
-        $mostVisitedCategories = CategoryManager::getCategoriesWithCountingAndPriorityWiseSorting();
+        $mostVisitedCategories = $categories; // reuse — same query as $categories above
         $topVendorsList = ProductManager::getPriorityWiseTopVendorQuery(query: $this->cacheHomePageTopVendorsList());
         $mostDemandedProducts = $this->cacheMostDemandedProductItem();
         $bannerTypeMainBanner = $this->cacheBannerForTypeMainBanner();
@@ -361,7 +357,7 @@ class HomeController extends Controller
         $randomSingleProduct = $this->cacheHomePageRandomSingleProductItem();
         $allProductsColorList = $this->cacheProductsColorsArray();
         $clearanceSaleProducts = $this->cacheHomePageClearanceSaleProducts();
-        $recommendedProduct = $this->cacheHomePageRandomSingleProductItem();
+        $recommendedProduct = $randomSingleProduct; // reuse the same cached item
 
         $featuredProductsList = Cache::remember(CACHE_FOR_FEATURED_PRODUCTS_LIST, CACHE_FOR_3_HOURS, function () {
             $featuredProductsList = $this->product->with(['clearanceSale' => function ($query) {
@@ -378,7 +374,7 @@ class HomeController extends Controller
                 return $query->active();
             }])
                 ->withCount('reviews')
-                ->withSum('tags', 'visit_count')->orderBy('tags_sum_visit_count', 'desc')->get()->take(10);
+                ->withSum('tags', 'visit_count')->orderBy('tags_sum_visit_count', 'desc')->limit(10)->get();
         });
 
         $dealOfTheDay = $this->dealOfTheDay->with(['product' => function ($query) {
@@ -395,14 +391,15 @@ class HomeController extends Controller
         $newSellers = $vendorList->sortByDesc('id')->take(12);
         $topRatedShops = $vendorList->where('review_count', '!=', 0)->sortByDesc('average_rating')->take(12);
 
-        $baseProductQuery = $this->product->with(['category', 'compareList', 'reviews', 'flashDealProducts.flashDeal', 'clearanceSale' => function ($query) {
+        $baseProductQuery = $this->product->with(['category', 'compareList', 'flashDealProducts.flashDeal', 'clearanceSale' => function ($query) {
             $query->active();
         }])
+            ->withCount(['reviews'])
             ->withSum('orderDetails', 'qty')
             ->active();
 
         $allProductsList = $baseProductQuery->orderBy('order_details_sum_qty', 'DESC')->paginate(20);
-        $allProductsList?->map(function ($product) use ($currentDate) {
+        $allProductsList->through(function ($product) use ($currentDate) {
             $flashDealStatus = 0;
             $flashDealEndDate = 0;
             if (count($product->flashDealProducts) > 0) {
@@ -429,20 +426,23 @@ class HomeController extends Controller
                 ->inRandomOrder()->take(12)->get();
         }
 
-        $allProductSectionOrders = $this->order->where(['order_type' => 'default_type'])->whereHas('orderDetails', function ($query) {
-            return $query->whereHas('product', function ($query) {
-                return $query->active();
-            });
-        });
+        $allProductsGroupInfo = Cache::remember('home_products_group_info', CACHE_FOR_3_HOURS, function () {
+            $ordersQuery = $this->order->where(['order_type' => 'default_type'])
+                ->whereHas('orderDetails', function ($query) {
+                    return $query->whereHas('product', function ($query) {
+                        return $query->active();
+                    });
+                });
 
-        $allProductsGroupInfo = [
-            'total_products' => $this->product->active()->count(),
-            'total_orders' => $allProductSectionOrders->count(),
-            'total_delivery' => $allProductSectionOrders->where(['payment_status' => 'paid', 'order_status' => 'delivered'])->count(),
-            'total_reviews' => $this->review->active()->where('product_id', '!=', 0)->whereHas('product', function ($query) {
-                return $query->active();
-            })->whereNull('delivery_man_id')->count(),
-        ];
+            return [
+                'total_products' => $this->product->active()->count(),
+                'total_orders'   => (clone $ordersQuery)->count(),
+                'total_delivery' => (clone $ordersQuery)->where(['payment_status' => 'paid', 'order_status' => 'delivered'])->count(),
+                'total_reviews'  => $this->review->active()->where('product_id', '!=', 0)
+                    ->whereHas('product', function ($query) { return $query->active(); })
+                    ->whereNull('delivery_man_id')->count(),
+            ];
+        });
 
         $data = [];
         return view(VIEW_FILE_NAMES['home'],

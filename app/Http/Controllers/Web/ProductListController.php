@@ -120,12 +120,12 @@ class ProductListController extends Controller
 
         $category = [];
         if ($request['category_ids']) {
-            $category = Category::whereIn('id', $request['category_ids'])->get();
+            $category = Category::whereIn('id', $request['category_ids'])->select('id', 'name')->get();
         }
 
         $brands = [];
         if ($request['brand_ids']) {
-            $brands = Brand::whereIn('id', $request['brand_ids'])->get();
+            $brands = Brand::whereIn('id', $request['brand_ids'])->select('id', 'name')->get();
         }
 
         $publishingHouse = [];
@@ -280,34 +280,20 @@ class ProductListController extends Controller
 
     function getProductsRatingOneToFiveAsArray($productQuery): array
     {
-        $rating_1 = 0;
-        $rating_2 = 0;
-        $rating_3 = 0;
-        $rating_4 = 0;
-        $rating_5 = 0;
-
-        $products = (clone $productQuery)->with('rating')->select('id')->get();
-
-        foreach ($products as $rating) {
-            if (isset($rating->rating[0]['average']) && ($rating->rating[0]['average'] > 0 && $rating->rating[0]['average'] < 2)) {
-                $rating_1 += 1;
-            } elseif (isset($rating->rating[0]['average']) && ($rating->rating[0]['average'] >= 2 && $rating->rating[0]['average'] < 3)) {
-                $rating_2 += 1;
-            } elseif (isset($rating->rating[0]['average']) && ($rating->rating[0]['average'] >= 3 && $rating->rating[0]['average'] < 4)) {
-                $rating_3 += 1;
-            } elseif (isset($rating->rating[0]['average']) && ($rating->rating[0]['average'] >= 4 && $rating->rating[0]['average'] < 5)) {
-                $rating_4 += 1;
-            } elseif (isset($rating->rating[0]['average']) && ($rating->rating[0]['average'] == 5)) {
-                $rating_5 += 1;
-            }
-        }
+        // Single DB query using FLOOR bucketing — avoids loading all products into PHP memory
+        $buckets = (clone $productQuery)
+            ->join('product_ratings', 'products.id', '=', 'product_ratings.product_id')
+            ->selectRaw('FLOOR(product_ratings.average) as bucket, COUNT(DISTINCT products.id) as total')
+            ->whereRaw('product_ratings.average > 0')
+            ->groupByRaw('FLOOR(product_ratings.average)')
+            ->pluck('total', 'bucket');
 
         return [
-            'rating_1' => $rating_1,
-            'rating_2' => $rating_2,
-            'rating_3' => $rating_3,
-            'rating_4' => $rating_4,
-            'rating_5' => $rating_5,
+            'rating_1' => (int) ($buckets[1] ?? 0),
+            'rating_2' => (int) ($buckets[2] ?? 0),
+            'rating_3' => (int) ($buckets[3] ?? 0),
+            'rating_4' => (int) ($buckets[4] ?? 0),
+            'rating_5' => (int) ($buckets[5] ?? 0),
         ];
     }
 
@@ -463,12 +449,7 @@ class ProductListController extends Controller
 
         $productsCount = $productListData->count();
         $paginateCount = ceil($productsCount / $singlePageProductCount);
-        $currentPage = $offset ?? Paginator::resolveCurrentPage('page');
-        $results = $productListData->forPage($currentPage, $singlePageProductCount)->get();
-        $products = new LengthAwarePaginator(items: $results, total: $productsCount, perPage: $singlePageProductCount, currentPage: $currentPage, options: [
-            'path' => Paginator::resolveCurrentPath(),
-            'appends' => $request->all(),
-        ]);
+        $products = $productListData->paginate($singlePageProductCount);
 
         $data = [
             'id' => $request['id'],

@@ -230,16 +230,14 @@ class ProductDetailsController extends Controller
 
             $productIds = Product::active()->where(['added_by' => $product['added_by']])
                 ->where('user_id', $product['user_id'])->pluck('id')->toArray();
-            $vendorReviewData = Review::active()->whereIn('product_id', $productIds);
-            $ratingCount = $vendorReviewData->count();
-            $avgRating = $vendorReviewData->avg('rating');
 
-            $vendorRattingStatusPositive = 0;
-            foreach ($vendorReviewData->pluck('rating') as $singleRating) {
-                ($singleRating >= 4 ? ($vendorRattingStatusPositive++) : '');
-            }
+            $vendorRatings = Review::active()->whereIn('product_id', $productIds)
+                ->selectRaw('COUNT(*) as total_reviews, SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) as positive_reviews, AVG(rating) as avg_rating')
+                ->first();
 
-            $positiveReview = $ratingCount != 0 ? ($vendorRattingStatusPositive * 100) / $ratingCount : 0;
+            $ratingCount = $vendorRatings->total_reviews ?? 0;
+            $avgRating   = $vendorRatings->avg_rating ?? 0;
+            $positiveReview = $ratingCount > 0 ? ($vendorRatings->positive_reviews * 100) / $ratingCount : 0;
             $previewFileInfo = getFileInfoFromURL(url: $product?->preview_file_full_url['path']);
 
             return view(VIEW_FILE_NAMES['products_details'], compact('product', 'wishlistStatus', 'countWishlist',
@@ -274,8 +272,7 @@ class ProductDetailsController extends Controller
                 scope: 'active',
                 filters: ['category_id' => $product['category_id'], 'customer_id' => Auth::guard('customer')->user()->id ?? 0],
                 whereNotIn: ['id' => [$product['id']]],
-                relations: ['reviews' => 'reviews', 'flashDealProducts.flashDeal' => 'flashDealProducts.flashDeal', 'wishList' => 'wishList', 'compareList' => 'compareList'],
-                dataLimit: 'all',
+                dataLimit: 12,
             )->count();
 
             $overallRating = getOverallRating($product['reviews']);
@@ -320,24 +317,18 @@ class ProductDetailsController extends Controller
                 $productsForReview = $this->productRepo->getWebListWithScope(
                     scope: 'active',
                     filters: ['added_by' => $product['added_by'], 'seller_id' => $product['user_id']],
-                    withCount: ['reviews' => 'reviews']
+                    withCount: ['reviews' => 'reviews'],
+                    dataLimit: 200,
                 );
-                $productsCount = $this->productRepo->getWebListWithScope(
-                    scope: 'active',
-                    filters: ['added_by' => $product['added_by'], 'seller_id' => $product['user_id']],
-                    dataLimit: 'all'
-                )->count();
+                $productsCount = $productsForReview->count();
             } else {
                 $productsForReview = $this->productRepo->getWebListWithScope(
                     scope: 'active',
                     filters: ['added_by' => 'in_house', 'seller_id' => $product['user_id']],
-                    withCount: ['reviews' => 'reviews']
+                    withCount: ['reviews' => 'reviews'],
+                    dataLimit: 200,
                 );
-                $productsCount = $this->productRepo->getWebListWithScope(
-                    scope: 'active',
-                    filters: ['added_by' => 'in_house', 'seller_id' => $product['user_id']],
-                    dataLimit: 'all'
-                )->count();
+                $productsCount = $productsForReview->count();
             }
             $totalReviews = 0;
             foreach ($productsForReview as $item) {
@@ -358,27 +349,21 @@ class ProductDetailsController extends Controller
             $sellerList = $this->sellerRepo->getListWithScope(
                 scope: 'active',
                 filters: ['category_id' => $product['category_id']],
-                relations: ['shop' => 'shop', 'product.reviews' => 'product.reviews'],
+                relations: ['shop' => 'shop'],
                 withCount: ['product' => 'product'],
                 dataLimit: 'all',
             );
-            $sellerList?->map(function ($seller) {
-                $rating = 0;
-                $count = 0;
-                foreach ($seller->product as $item) {
-                    foreach ($item->reviews as $review) {
-                        $rating += $review->rating;
-                        $count++;
-                    }
-                }
-                $avg_rating = $rating / ($count == 0 ? 1 : $count);
-                $rating_count = $count;
-                $seller['average_rating'] = $avg_rating;
-                $seller['rating_count'] = $rating_count;
-
-                $product_count = $seller->product->count();
-                $randomSingleProduct = Arr::random($seller->product->toArray(), $product_count < 3 ? $product_count : 3);
-                $seller['product'] = $randomSingleProduct;
+            $sellerProductIds = Product::active()
+                ->whereIn('user_id', $sellerList->pluck('id')->toArray())
+                ->selectRaw('user_id, AVG(rating) as avg_rating, COUNT(*) as product_count')
+                ->join('reviews', 'reviews.product_id', '=', 'products.id')
+                ->groupBy('user_id')
+                ->get()
+                ->keyBy('user_id');
+            $sellerList->map(function ($seller) use ($sellerProductIds) {
+                $stats = $sellerProductIds->get($seller->id);
+                $seller['average_rating'] = $stats->avg_rating ?? 0;
+                $seller['rating_count']   = $stats->product_count ?? 0;
                 return $seller;
             });
             $newSellers = $sellerList->sortByDesc('id')->take(12);

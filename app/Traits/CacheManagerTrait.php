@@ -73,8 +73,15 @@ trait CacheManagerTrait
 
     public function cacheProductsReviews()
     {
+        // Returns a keyed collection of [product_id => [count, avg, positive_count]]
+        // used by cacheShopTable and cacheHomePageTopVendorsList — NO full row dumps.
         return Cache::remember(CACHE_FOR_ALL_PRODUCTS_REVIEW_LIST, CACHE_FOR_3_HOURS, function () {
-            return Review::active()->whereNull('delivery_man_id')->get();
+            return Review::active()
+                ->whereNull('delivery_man_id')
+                ->selectRaw('product_id, COUNT(*) as review_count, AVG(rating) as average_rating, SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) as positive_count, SUM(rating) as total_rating')
+                ->groupBy('product_id')
+                ->get()
+                ->keyBy('product_id');
         });
     }
 
@@ -87,22 +94,31 @@ trait CacheManagerTrait
                     $query->active();
                 }])
                 ->with('seller', function ($query) {
-                    $query->with('product', function ($query) {
-                        $query->active()->withoutGlobalScopes();
-                    })->withCount(['orders']);
+                    $query->withCount(['orders']);
                 })
                 ->get()
                 ->each(function ($shop) use ($productReviews) {
-                    $shop->orders_count = $shop->seller->orders_count;
-                    $productIds = $shop->seller->product->pluck('id')->toArray();
-                    $productReviews = $productReviews->whereIn('product_id', $productIds);
-                    $productReviews = $productReviews->where('status', 1);
-                    $shop->average_rating = $productReviews->avg('rating');
-                    $shop->review_count = $productReviews->count();
-                    $shop->total_rating = $productReviews->sum('rating');
-
-                    $positiveReviewsCount = $productReviews->where('rating', '>=', 4)->count();
-                    $shop->positive_review = ($shop->review_count !== 0) ? ($positiveReviewsCount * 100) / $shop->review_count : 0;
+                    $shop->orders_count = $shop->seller->orders_count ?? 0;
+                    // Get product IDs for this shop
+                    $productIds = $shop->seller
+                        ? \App\Models\Product::active()->where('user_id', $shop->seller_id)->pluck('id')->toArray()
+                        : [];
+                    // Aggregate from the pre-computed keyed collection — no per-shop DB hit
+                    $reviewCount = 0;
+                    $totalRating = 0;
+                    $positiveCount = 0;
+                    foreach ($productIds as $pid) {
+                        if (isset($productReviews[$pid])) {
+                            $r = $productReviews[$pid];
+                            $reviewCount   += $r->review_count;
+                            $totalRating   += $r->total_rating;
+                            $positiveCount += $r->positive_count;
+                        }
+                    }
+                    $shop->average_rating  = $reviewCount > 0 ? round($totalRating / $reviewCount, 2) : 0;
+                    $shop->review_count    = $reviewCount;
+                    $shop->total_rating    = $totalRating;
+                    $shop->positive_review = $reviewCount > 0 ? ($positiveCount * 100) / $reviewCount : 0;
                     $shop->is_vacation_mode_now = checkVendorAbility(type: 'vendor', status: 'vacation_status', vendor: $shop);
                     return $shop;
                 });
@@ -201,7 +217,7 @@ trait CacheManagerTrait
     public function cacheInHouseAllProducts()
     {
         return Cache::remember(CACHE_FOR_IN_HOUSE_ALL_PRODUCTS, CACHE_FOR_3_HOURS, function () {
-            return Product::active()->with(['reviews', 'rating'])->withCount('reviews')->where(['added_by' => 'admin'])->get();
+            return Product::active()->withCount('reviews')->where(['added_by' => 'admin'])->get();
         });
     }
 
@@ -226,19 +242,19 @@ trait CacheManagerTrait
 
     public function cacheHomePageClearanceSaleProducts($dataLimit = 10)
     {
-        $productIds = StockClearanceProduct::active()->whereHas('setup', function ($query) {
-            $addedBy = getWebConfig(name: 'stock_clearance_vendor_offer_in_homepage') ? ['admin', 'vendor'] : ['admin'];
-            return $query->where('show_in_homepage', 1)->whereIn('setup_by', $addedBy);
-        })->whereHas('product', function ($query) {
-            return $query->active()->with(['reviews', 'rating'])->withCount('reviews');
-        })->with('product', function ($query) {
-            return $query->active();
-        })->pluck('product_id')->toArray();
+        return Cache::remember('home_clearance_sale_products_' . $dataLimit, CACHE_FOR_3_HOURS, function () use ($dataLimit) {
+            $productIds = StockClearanceProduct::active()->whereHas('setup', function ($query) {
+                $addedBy = getWebConfig(name: 'stock_clearance_vendor_offer_in_homepage') ? ['admin', 'vendor'] : ['admin'];
+                return $query->where('show_in_homepage', 1)->whereIn('setup_by', $addedBy);
+            })->whereHas('product', function ($query) {
+                return $query->active();
+            })->pluck('product_id')->toArray();
 
-        $products = Product::active()->with(['reviews', 'rating', 'clearanceSale' => function ($query) {
-            return $query->active();
-        }])->withCount('reviews')->whereIn('id', $productIds);
-        return ProductManager::getPriorityWiseClearanceSaleProductsQuery(query: $products, dataLimit: $dataLimit);
+            $products = Product::active()->with(['clearanceSale' => function ($query) {
+                return $query->active();
+            }])->withCount('reviews')->whereIn('id', $productIds);
+            return ProductManager::getPriorityWiseClearanceSaleProductsQuery(query: $products, dataLimit: $dataLimit);
+        });
     }
 
     public function cacheRobotsMetaContent(string $page)
@@ -257,37 +273,39 @@ trait CacheManagerTrait
     public function cacheHomePageTopVendorsList()
     {
         $inHouseProducts = $this->cacheInHouseAllProducts();
-        $productReviews = $this->cacheProductsReviews();
+        $productReviews  = $this->cacheProductsReviews(); // Now keyed by product_id with aggregate data
         return Cache::remember(CACHE_FOR_HOME_PAGE_TOP_VENDORS_LIST, CACHE_FOR_3_HOURS, function () use ($inHouseProducts, $productReviews) {
             $topVendorsList = Shop::active()
                 ->withCount(['products' => function ($query) {
                     $query->active();
                 }])
                 ->with(['products' => function ($query) {
-                    $query->active();
+                    $query->active()->select('id', 'user_id', 'thumbnail', 'name', 'slug');
                 }])
                 ->with('seller', function ($query) {
-                    $query->with('product', function ($query) {
-                        $query->active()->with('reviews', function ($query) {
-                            $query->active();
-                        });
-                    })->with('coupon')->withCount(['orders']);
+                    $query->with('coupon')->withCount(['orders']);
                 })
                 ->get()
                 ->each(function ($shop) use ($productReviews) {
-                    $productIds = $shop?->products?->pluck('id')->toArray() ?? [];
-                    $productReviews = $productReviews->whereIn('product_id', $productIds);
-                    $productReviews = $productReviews->where('status', 1);
-                    $shop->average_rating = $productReviews->avg('rating');
-                    $shop->review_count = $productReviews->count();
-                    $shop->total_rating = $productReviews->sum('rating');
-
-                    $shop->products = Arr::random($shop->products->toArray(), count($shop->products) < 3 ? count($shop->products) : 3);
-                    $shop->orders_count = $shop->seller->orders_count;
-                    $shop->coupon_list = $shop?->seller?->coupon ?? null;
-
-                    $positiveReviewsCount = $productReviews->where('rating', '>=', 4)->count();
-                    $shop->positive_review = ($shop->review_count !== 0) ? ($positiveReviewsCount * 100) / $shop->review_count : 0;
+                    $productIds    = $shop->products->pluck('id')->toArray();
+                    $reviewCount   = 0;
+                    $totalRating   = 0;
+                    $positiveCount = 0;
+                    foreach ($productIds as $pid) {
+                        if (isset($productReviews[$pid])) {
+                            $r = $productReviews[$pid];
+                            $reviewCount   += $r->review_count;
+                            $totalRating   += $r->total_rating;
+                            $positiveCount += $r->positive_count;
+                        }
+                    }
+                    $shop->average_rating  = $reviewCount > 0 ? round($totalRating / $reviewCount, 2) : 0;
+                    $shop->review_count    = $reviewCount;
+                    $shop->total_rating    = $totalRating;
+                    $shop->positive_review = $reviewCount > 0 ? ($positiveCount * 100) / $reviewCount : 0;
+                    $shop->products        = Arr::random($shop->products->toArray(), count($shop->products) < 3 ? count($shop->products) : 3);
+                    $shop->orders_count    = $shop->seller->orders_count ?? 0;
+                    $shop->coupon_list     = $shop->seller->coupon ?? null;
                     $shop->is_vacation_mode_now = checkVendorAbility(type: 'vendor', status: 'vacation_status', vendor: $shop);
                 });
 
@@ -296,24 +314,31 @@ trait CacheManagerTrait
                 ->whereDate('expire_date', '>=', date('Y-m-d'))->get();
 
             $inHouseProductCount = $inHouseProducts->count();
+            $inHouseProductIds   = $inHouseProducts->pluck('id')->toArray();
 
-            $inHouseReviewData = Review::active()->whereIn('product_id', $inHouseProducts->pluck('id'));
-            $inHouseReviewDataCount = $inHouseReviewData->count();
-            $inHouseRattingStatusPositive = 0;
-            foreach ($inHouseReviewData->pluck('rating') as $singleRating) {
-                ($singleRating >= 4 ? ($inHouseRattingStatusPositive++) : '');
+            // Aggregate in-house reviews from the pre-computed keyed collection
+            $inHouseReviewCount   = 0;
+            $inHouseTotalRating   = 0;
+            $inHousePositiveCount = 0;
+            foreach ($inHouseProductIds as $pid) {
+                if (isset($productReviews[$pid])) {
+                    $r = $productReviews[$pid];
+                    $inHouseReviewCount   += $r->review_count;
+                    $inHouseTotalRating   += $r->total_rating;
+                    $inHousePositiveCount += $r->positive_count;
+                }
             }
 
             $inHouseShop = $this->getInHouseShopObject();
-            $inHouseShop->id = 0;
+            $inHouseShop->id             = 0;
             $inHouseShop->products_count = $inHouseProductCount;
-            $inHouseShop->coupon_list = $inHouseCoupon;
-            $inHouseShop->total_rating = $inHouseReviewDataCount;
-            $inHouseShop->review_count = $inHouseReviewDataCount;
-            $inHouseShop->average_rating = $inHouseReviewData->avg('rating');
-            $inHouseShop->positive_review = $inHouseReviewDataCount != 0 ? ($inHouseRattingStatusPositive * 100) / $inHouseReviewDataCount : 0;
-            $inHouseShop->orders_count = Order::where(['seller_is' => 'admin'])->count();
-            $inHouseShop->products = Arr::random($inHouseProducts->toArray(), $inHouseProductCount < 3 ? $inHouseProductCount : 3);;
+            $inHouseShop->coupon_list    = $inHouseCoupon;
+            $inHouseShop->total_rating   = $inHouseTotalRating;
+            $inHouseShop->review_count   = $inHouseReviewCount;
+            $inHouseShop->average_rating = $inHouseReviewCount > 0 ? round($inHouseTotalRating / $inHouseReviewCount, 2) : 0;
+            $inHouseShop->positive_review = $inHouseReviewCount > 0 ? ($inHousePositiveCount * 100) / $inHouseReviewCount : 0;
+            $inHouseShop->orders_count   = Order::where(['seller_is' => 'admin'])->count();
+            $inHouseShop->products       = Arr::random($inHouseProducts->toArray(), $inHouseProductCount < 3 ? $inHouseProductCount : 3);
             return $topVendorsList->prepend($inHouseShop);
         });
     }
