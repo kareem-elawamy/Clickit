@@ -403,8 +403,11 @@ trait CacheManagerTrait
     {
         return Cache::remember(CACHE_FOR_HOME_PAGE_BEST_SELL_PRODUCT_LIST, CACHE_FOR_3_HOURS, function () {
             return Product::active()
-                ->with(['reviews', 'seller.shop', 'clearanceSale' => function ($query) {
+                ->with(['seller.shop', 'clearanceSale' => function ($query) {
                     return $query->active();
+                }, 'reviews' => function ($query) {
+                    // Only id/product_id/rating needed by getOverallRating() in Blade cards
+                    $query->select('id', 'product_id', 'rating')->active();
                 }])
                 ->whereHas('orderDetails', function ($query) {
                     $query->select('product_id', DB::raw('COUNT(product_id) as count'))
