@@ -1996,10 +1996,17 @@ class ProductManager
         }
 
         $productListData = Product::active()
-            ->with(['category', 'reviews', 'rating', 'seller.shop', 'clearanceSale' => function ($query) {
+            ->with(['category', 'seller.shop', 'clearanceSale' => function ($query) {
                 return $query->active()->with(['setup']);
+            }, 'reviews' => function ($query) {
+                // Scope to only fields needed by getOverallRating() + count() in Blade card templates
+                $query->select('id', 'product_id', 'rating')->active();
             }])
             ->withAvg('reviews', 'rating')
+            ->withCount(['reviews'])
+            ->withSum('orderDetails', 'qty', function ($query) {
+                $query->where('delivery_status', 'delivered');
+            })
             ->when($productAddedBy == 'admin', function ($query) use ($productAddedBy) {
                 return $query->where(['added_by' => $productAddedBy]);
             })
@@ -2008,10 +2015,6 @@ class ProductManager
             })
             ->when(in_array($request['product_type'], ['physical', 'digital']), function ($query) use ($request) {
                 return $query->where(['product_type' => $request['product_type']]);
-            })
-            ->withCount(['reviews'])
-            ->withSum('orderDetails', 'qty', function ($query) {
-                $query->where('delivery_status', 'delivered');
             })
             ->when($type == 'flash-deals' && $request->has('flash_deals_id') && !empty($request['flash_deals_id']), function ($query) use ($request) {
                 $flashDealProducts = FlashDealProduct::where(['flash_deal_id' => $request['flash_deals_id']])?->pluck('product_id')?->toArray() ?? [];
@@ -2146,15 +2149,11 @@ class ProductManager
                 });
             })
             ->when($request['data_from'] == 'most-favorite', function ($query) {
-                $wishListItems = Wishlist::with('product')
-                    ->select('product_id', DB::raw('COUNT(product_id) as count'))
+                $getWishListedProductIds = Wishlist::select('product_id', DB::raw('COUNT(product_id) as count'))
                     ->groupBy('product_id')
-                    ->orderBy("count", 'desc')
-                    ->get();
-                $getWishListedProductIds = [];
-                foreach ($wishListItems as $detail) {
-                    $getWishListedProductIds[] = $detail['product_id'];
-                }
+                    ->orderBy('count', 'desc')
+                    ->pluck('product_id')
+                    ->toArray();
                 return $query->whereIn('id', $getWishListedProductIds);
             })
             ->when(($request['data_from'] == 'latest' || $request['data_from'] == ''), function ($query) {
@@ -2176,14 +2175,10 @@ class ProductManager
                 return $query->whereIn('id', $getReviewProductIds);
             })
             ->when($request['data_from'] == 'best-selling', function ($query) use ($request) {
-                $orderDetails = OrderDetail::with('product')
-                    ->select('product_id', DB::raw('COUNT(product_id) as count'))
+                $getOrderedProductIds = OrderDetail::select('product_id', DB::raw('COUNT(product_id) as count'))
                     ->groupBy('product_id')
-                    ->get();
-                $getOrderedProductIds = [];
-                foreach ($orderDetails as $detail) {
-                    $getOrderedProductIds[] = $detail['product_id'];
-                }
+                    ->pluck('product_id')
+                    ->toArray();
                 return $query->whereIn('id', $getOrderedProductIds);
             })
             ->when($request['offer_type'] == 'featured_deal', function ($query) use ($request) {

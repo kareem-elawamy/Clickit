@@ -150,9 +150,10 @@ trait CacheManagerTrait
     public function cacheMainCategoriesList()
     {
         return Cache::remember(CACHE_MAIN_CATEGORIES_LIST, CACHE_FOR_3_HOURS, function () {
-            return Category::with(['product' => function ($query) {
-                return $query->active()->withCount(['orderDetails']);
-            }])->withCount(['product' => function ($query) {
+            // Removed with('product' => withCount('orderDetails')) — that loaded ALL products
+            // into PHP memory per category and counted each product's order_details.
+            // Only product_count is needed here (used for display/sorting in navbars/dropdowns).
+            return Category::withCount(['product' => function ($query) {
                 $query->active();
             }])->with(['childes' => function ($query) {
                 $query->with(['childes' => function ($query) {
@@ -346,7 +347,9 @@ trait CacheManagerTrait
     public function cacheHomePageMoreVendorsList()
     {
         return Cache::remember(CACHE_FOR_HOME_PAGE_MORE_VENDORS_LIST, CACHE_FOR_3_HOURS, function () {
-            return Seller::approved()->with(['shop', 'product.reviews'])
+            // Removed with('product.reviews') — fetched all products + all reviews for 7 sellers.
+            // The Home Blade only displays product_count and basic shop info, not reviews per product.
+            return Seller::approved()->with(['shop'])
                 ->withCount(['product' => function ($query) {
                     $query->active();
                 }])->inRandomOrder()->take(7)->get();
