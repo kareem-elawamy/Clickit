@@ -71,9 +71,13 @@ class BrandController extends Controller
 
     public function get_products(Request $request, $brand_id)
     {
-        $dataLimit = $request['limit'] ?? 'all';
+        $limit  = (int) ($request['limit']  ?? 10);
+        if ($limit < 1) $limit = 10; // Failsafe for (int) 'all'
+        if ($limit > 50) $limit = 50; // Cap to prevent artificial crashes
+
         $user = Helpers::getCustomerInformation($request);
         $products = Product::active()
+            ->without(['reviews']) // CRITICAL FIX: Prevent massive N+1 global scope loading
             ->with(['clearanceSale' => function ($query) {
                 return $query->active();
             }])
@@ -82,18 +86,22 @@ class BrandController extends Controller
             }])
             ->where(['brand_id' => $brand_id]);
 
-        if ($dataLimit == 'all') {
-            return response()->json(Helpers::product_data_formatting($products->get(), true), 200);
-        }
+        $products = $products->paginate($limit, ['*'], 'page', request()->get('page', ($request['offset'] ?? 1)));
+        $productFinal = Helpers::product_data_formatting($products->items(), true);
+        
+        // STRICT PAYLOAD SCRUBBING: Preserve structural JSON keys to prevent Mobile App crashes
+        $productFinal = Helpers::product_payload_scrub($productFinal);
 
-        $products = $products->paginate(($request['limit'] ?? 20), ['*'], 'page', request()->get('page', ($request['offset'] ?? 1)));
-        $productFinal = Helpers::product_data_formatting($products, true);
+        $requestedLimit = $request['limit'] ?? 'all';
+        if ($requestedLimit === 'all') {
+            return response()->json(array_values($productFinal), 200);
+        }
 
         return response()->json([
             'total_size' => $products->total(),
-            'limit' => (int)$request['limit'],
-            'offset' => (int)$request['offset'],
-            'products' => $productFinal,
+            'limit' => (int)$limit,
+            'offset' => (int)($request['offset'] ?? 1),
+            'products' => array_values($productFinal),
         ], 200);
     }
 }

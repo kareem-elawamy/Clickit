@@ -80,13 +80,26 @@ class SellerController extends Controller
 
     public function getVendorProducts($seller_id, Request $request): JsonResponse
     {
+        $requestedLimit = $request['limit'] ?? 'all';
+        $limit  = (int) ($request['limit']  ?? 10);
+        if ($limit < 1) $limit = 10;
+        if ($limit > 50) $limit = 50;
+        $request->merge(['limit' => $limit]);
+
         $products = ProductManager::get_seller_products($seller_id, $request);
+        
         $productsList = $products->total() > 0 ? Helpers::product_data_formatting($products->items(), true) : [];
+        $productsList = Helpers::product_payload_scrub($productsList);
+
+        if ($requestedLimit === 'all') {
+            return response()->json(array_values($productsList), 200);
+        }
+
         return response()->json([
             'total_size' => $products->total(),
-            'limit' => (int)$request['limit'],
+            'limit' => (int)$limit,
             'offset' => (int)$request['offset'],
-            'products' => $productsList
+            'products' => array_values($productsList)
         ]);
     }
 
@@ -194,18 +207,36 @@ class SellerController extends Controller
 
     public function get_seller_best_selling_products($seller_id, Request $request)
     {
-        $products = ProductManager::get_seller_best_selling_products($request, $seller_id, $request['limit'], $request['offset']);
-        $products['products'] = isset($products['products'][0]) ? Helpers::product_data_formatting($products['products'], true) : [];
+        $requestedLimit = $request['limit'] ?? 'all';
+        $limit  = (int) ($request['limit']  ?? 10);
+        if ($limit < 1) $limit = 10;
+        if ($limit > 50) $limit = 50;
 
+        $products = ProductManager::get_seller_best_selling_products($request, $seller_id, $limit, $request['offset']);
+        $productsList = isset($products['products'][0]) ? Helpers::product_data_formatting($products['products'], true) : [];
+        $productsList = Helpers::product_payload_scrub($productsList);
+
+        if ($requestedLimit === 'all') {
+            return response()->json(array_values($productsList), 200);
+        }
+
+        $products['products'] = array_values($productsList);
+        $products['limit'] = (int)$limit;
         return response()->json($products, 200);
     }
 
     public function get_sellers_featured_product($seller_id, Request $request)
     {
+        $requestedLimit = $request['limit'] ?? 'all';
+        $limit  = (int) ($request['limit']  ?? 10);
+        if ($limit < 1) $limit = 10;
+        if ($limit > 50) $limit = 50;
+
         $user = Helpers::getCustomerInformation($request);
-        $featuredProducts = Product::active()->with(['reviews', 'rating', 'clearanceSale' => function ($query) {
+        $featuredProducts = Product::active()->without(['reviews'])->with(['rating', 'clearanceSale' => function ($query) {
                 return $query->active();
             }])
+            ->withCount(['reviews'])
             ->withCount(['wishList' => function ($query) use ($user) {
                 $query->where('customer_id', $user != 'offline' ? $user->id : '0');
             }])
@@ -217,23 +248,35 @@ class SellerController extends Controller
                 return $query->where(['added_by' => 'seller', 'user_id' => $seller_id]);
             });
 
-        $featuredProductsList = ProductManager::getPriorityWiseFeaturedProductsQuery(query: $featuredProducts, dataLimit: $request['limit'], offset: $request['offset']);
+        $featuredProductsList = ProductManager::getPriorityWiseFeaturedProductsQuery(query: $featuredProducts, dataLimit: $limit, offset: $request['offset']);
         $featuredProductsList?->map(function ($product) {
-            $product['reviews_count'] = $product->reviews->count();
+            $product['reviews_count'] = $product->reviews_count;
             $product['rating'] = isset($product?->rating[0]) ? $product->rating[0] : null;
         });
+        
+        $productsList = $featuredProductsList->items() ? Helpers::product_data_formatting($featuredProductsList->items(), true) : [];
+        $productsList = Helpers::product_payload_scrub($productsList);
 
-        return [
+        if ($requestedLimit === 'all') {
+            return response()->json(array_values($productsList), 200);
+        }
+
+        return response()->json([
             'total_size' => $featuredProductsList->total(),
-            'limit' => (int)$request['limit'],
-            'offset' => (int)$request['offset'],
-            'products' => $featuredProductsList->items() ? Helpers::product_data_formatting($featuredProductsList->items(), true) : []
-        ];
+            'limit' => (int)$limit,
+            'offset' => (int)($request['offset'] ?? 1),
+            'products' => array_values($productsList)
+        ], 200);
     }
 
     public function get_sellers_recommended_products($seller_id, Request $request)
     {
-        $products = Product::active()->with(['category','reviews'])
+        $requestedLimit = $request['limit'] ?? 'all';
+        $limit  = (int) ($request['limit']  ?? 10);
+        if ($limit < 1) $limit = 10;
+        if ($limit > 50) $limit = 50;
+
+        $products = Product::active()->without(['reviews'])->with(['category'])
                     ->when($seller_id == '0', function ($query){
                         return $query->where(['added_by' => 'admin']);
                     })
@@ -241,22 +284,29 @@ class SellerController extends Controller
                         return $query->where(['added_by' => 'seller', 'user_id'=>$seller_id]);
                     })
                     ->withCount('orderDelivered')
+                    ->withCount('reviews')
                     ->withSum('tags', 'visit_count')
                     ->orderBy('order_delivered_count', 'desc')
                     ->orderBy('tags_sum_visit_count', 'desc')
-                    ->paginate($request['limit'], ['*'], 'page', $request['offset']);
+                    ->paginate($limit, ['*'], 'page', $request['offset'] ?? 1);
 
         $products?->map(function ($product) {
-            $product['reviews_count'] = $product->reviews->count();
+            $product['reviews_count'] = $product->reviews_count;
             $product['rating'] = isset($product?->rating[0]) ?$product->rating[0] : null;
         });
 
+        $productsList = $products ? Helpers::product_data_formatting($products, true) : [];
+        $productsList = Helpers::product_payload_scrub($productsList);
 
-        return [
+        if ($requestedLimit === 'all') {
+            return response()->json(array_values($productsList), 200);
+        }
+
+        return response()->json([
             'total_size' => $products->total(),
-            'limit' => (int)$request['limit'],
-            'offset' => (int)$request['offset'],
-            'products' => $products ? Helpers::product_data_formatting($products, true) : []
-        ];
+            'limit' => (int)$limit,
+            'offset' => (int)($request['offset'] ?? 1),
+            'products' => array_values($productsList)
+        ], 200);
     }
 }

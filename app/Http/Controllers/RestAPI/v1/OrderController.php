@@ -866,7 +866,9 @@ class OrderController extends Controller
                     $product['thumbnail_full_url'] = $query?->product?->thumbnail_full_url;
                 }
 
-                $query['product_details'] = Helpers::product_data_formatting($product);
+                $formattedProduct = Helpers::product_data_formatting($product);
+                $scrubbedProduct = Helpers::product_payload_scrub([$formattedProduct]);
+                $query['product_details'] = $scrubbedProduct[0] ?? $formattedProduct;
                 return $query;
             });
 

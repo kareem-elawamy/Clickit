@@ -88,7 +88,10 @@ class Category extends Model
             return $name;
         }
 
-        return $this->translations[0]->value ?? $name;
+        if ($this->relationLoaded('translations') && $this->translations->count() > 0) {
+            return $this->translations->first()->value ?? $name;
+        }
+        return $name;
     }
 
     public function getDefaultNameAttribute(): string|null
@@ -102,10 +105,14 @@ class Category extends Model
         return $query->orderBy('priority', 'asc');
     }
 
-    public function getIconFullUrlAttribute():array
+    public function getIconFullUrlAttribute(): array|null
     {
         $value = $this->icon;
-        return $this->storageLink('category',$value,$this->icon_storage_type ?? 'public');
+        // ISSUE 2 FIX: Return null instead of generating /storage/category/null
+        if (empty($value)) {
+            return null;
+        }
+        return $this->storageLink('category', $value, $this->icon_storage_type ?? 'public');
     }
     protected $appends = ['icon_full_url'];
 

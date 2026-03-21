@@ -52,7 +52,8 @@ class CategoryController extends Controller
 
         // Remove the massive product relation from the JSON response, we only needed it for sorting
         $categories->map(function ($category) {
-            unset($category->product);
+            // ISSUE 2: Preserve JSON structure for mobile clients without the bloat
+            $category->setRelation('product', collect());
             return $category;
         });
 
@@ -61,19 +62,34 @@ class CategoryController extends Controller
 
     public function get_products(Request $request, $id): JsonResponse
     {
-        $dataLimit = $request['limit'] ?? 'all';
-        $products = CategoryManager::products($id, $request, $dataLimit);
-        $productFinal = Helpers::product_data_formatting($products, true);
+        // CRITICAL FIX: Never allow 'all' — enforce hard-default pagination to prevent 122MB payloads
+        $limit  = (int) ($request['limit']  ?? 10);
+        if ($limit < 1) {
+            $limit = 10; // Failsafe for (int) 'all' preventing limit=0 crashing pagination
+        }
+        if ($limit > 50) {
+            $limit = 50; // Cap to prevent artificial crashes
+        }
+        $offset = (int) ($request['offset'] ?? 1);
 
-        if ($dataLimit == 'all') {
-            return response()->json($productFinal, 200);
+        $products = CategoryManager::products($id, $request, $limit);
+        $productFinal = Helpers::product_data_formatting($products->items(), true);
+        
+        // STRICT PAYLOAD SCRUBBING: Preserve structural JSON keys to prevent Mobile App crashes
+        $productFinal = Helpers::product_payload_scrub($productFinal);
+
+        // ISSUE 2 FIX: Mock the legacy 'all' structural response if no limit was explicitly requested, 
+        // to prevent the mobile app from crashing by feeding it a raw Array instead of a nested Object.
+        $requestedLimit = $request['limit'] ?? 'all';
+        if ($requestedLimit === 'all') {
+            return response()->json(array_values($productFinal), 200);
         }
 
         return response()->json([
             'total_size' => $products->total(),
-            'limit' => (int)$request['limit'],
-            'offset' => (int)$request['offset'],
-            'products' => $productFinal,
+            'limit'      => $limit,
+            'offset'     => $offset,
+            'products'   => array_values($productFinal),
         ], 200);
     }
 

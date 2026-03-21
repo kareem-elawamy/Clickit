@@ -224,7 +224,8 @@ class ProductManager
             $product['flash_deal_status'] = $flashDealStatus;
             $product['flash_deal_end_date'] = $flashDealEndDate;
             $product['reviews_count'] = $product->reviews->count();
-            unset($product->reviews);
+            // ISSUE 2: Preserve JSON structure for mobile clients without the bloat
+            $product->setRelation('reviews', collect());
             return $product;
         });
 
@@ -284,7 +285,8 @@ class ProductManager
             $product['flash_deal_status'] = $flashDealStatus;
             $product['flash_deal_end_date'] = $flashDealEndDate;
             $product['reviews_count'] = $product->reviews->count();
-            unset($product->reviews);
+            // ISSUE 2: Preserve JSON structure for mobile clients without the bloat
+            $product->setRelation('reviews', collect());
             return $product;
         });
 
@@ -330,9 +332,11 @@ class ProductManager
     {
         $user = Helpers::getCustomerInformation($request);
         $product = Product::find($product_id);
-        $products = Product::active()->with(['rating', 'flashDealProducts.flashDeal', 'tags', 'seller.shop', 'clearanceSale' => function ($query) {
-            return $query->active();
-        }])
+        $products = Product::active()
+            ->without(['reviews']) // ISSUE 2: Prevent loading all reviews into memory for every related product
+            ->with(['rating', 'flashDealProducts.flashDeal', 'tags', 'seller.shop', 'clearanceSale' => function ($query) {
+                return $query->active();
+            }])
             ->withCount(['reviews', 'wishList' => function ($query) use ($user) {
                 $query->where('customer_id', $user != 'offline' ? $user->id : '0');
             }])
@@ -693,6 +697,7 @@ class ProductManager
         $limit = $request['limit'];
         $offset = $request['offset'];
         $products = Product::active()
+            ->without(['reviews']) // CRITICAL FIX: Prevent massive N+1 global scope loading
             ->with(['rating', 'flashDealProducts.flashDeal', 'tags', 'digitalProductAuthors.author', 'digitalProductPublishingHouse.publishingHouse', 'clearanceSale' => function ($query) {
                 return $query->active();
             }])

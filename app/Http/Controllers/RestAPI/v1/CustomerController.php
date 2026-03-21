@@ -365,6 +365,10 @@ class CustomerController extends Controller
 
     public function get_order_list(Request $request): JsonResponse
     {
+        $limit = (int) ($request['limit'] ?? 10);
+        if ($limit < 1) $limit = 10;
+        if ($limit > 50) $limit = 50;
+
         $status = array(
             'ongoing' => ['out_for_delivery', 'processing', 'confirmed', 'pending'],
             'canceled' => ['canceled', 'failed', 'returned'],
@@ -381,11 +385,14 @@ class CustomerController extends Controller
                     });
             })
             ->orderBy('id', 'desc')
-            ->paginate($request['limit'], ['*'], 'page', $request['offset']);
+            ->paginate($limit, ['*'], 'page', $request['offset']);
 
         $orders->map(function ($data) {
             $data->details->map(function ($query) {
-                $query['product'] = Helpers::product_data_formatting(json_decode($query['product'], true));
+                // Formatting the snapshot payload
+                $productData = Helpers::product_data_formatting(json_decode($query['product'], true));
+                $scrubbedProduct = Helpers::product_payload_scrub([$productData]);
+                $query['product'] = $scrubbedProduct[0] ?? $productData;
                 return $query;
             });
 
@@ -394,7 +401,7 @@ class CustomerController extends Controller
 
         $orders = [
             'total_size' => $orders->total(),
-            'limit' => $request['limit'],
+            'limit' => $limit,
             'offset' => $request['offset'],
             'orders' => $orders->items()
         ];
@@ -438,7 +445,9 @@ class CustomerController extends Controller
                 $checkFilePath = storageLink('product/digital-product', $product['digital_file_ready'], ($product['storage_path'] ?? 'public'));
                 $product['digital_file_ready_full_url'] = $checkFilePath;
             }
-            $query['product_details'] = Helpers::product_data_formatting_for_json_data($product);
+            $formattedProduct = Helpers::product_data_formatting_for_json_data($product);
+            $scrubbedProduct = Helpers::product_payload_scrub([$formattedProduct]);
+            $query['product_details'] = $scrubbedProduct[0] ?? $formattedProduct;
 
             $reviews = $allReviews->where('product_id', $query['product_id']);
             $reviewData = null;

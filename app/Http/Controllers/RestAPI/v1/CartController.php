@@ -124,6 +124,12 @@ class CartController extends Controller
                 }
 
                 $data['discount'] = getProductPriceByType(product: $data['product'], type: 'discounted_amount', result: 'value', price: $data['price']);
+                
+                if (isset($data['product'])) {
+                    $scrubbedProduct = Helpers::product_payload_scrub([$data['product']]);
+                    $data['product'] = $scrubbedProduct[0] ?? $data['product'];
+                }
+
                 unset($data['product']['variation']);
                 return $data;
             });

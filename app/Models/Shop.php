@@ -118,6 +118,7 @@ class Shop extends Model
             return getWebConfig(name: 'company_fav_icon');
         }
         $value = $this->image;
+        if (empty($value)) return null;
         return $this->storageLink('shop', $value, $this->image_storage_type ?? 'public');
     }
 
@@ -127,6 +128,7 @@ class Shop extends Model
             return getWebConfig(name: 'shop_banner');
         }
         $value = $this->banner;
+        if (empty($value)) return null;
         return $this->storageLink('shop/banner', $value, $this->banner_storage_type ?? 'public');
     }
 
@@ -136,6 +138,7 @@ class Shop extends Model
             return getWebConfig(name: 'bottom_banner');
         }
         $value = $this->bottom_banner;
+        if (empty($value)) return null;
         return $this->storageLink('shop/banner', $value, $this->bottom_banner_storage_type ?? 'public');
     }
 
@@ -145,12 +148,14 @@ class Shop extends Model
             return getWebConfig(name: 'offer_banner');
         }
         $value = $this->offer_banner;
+        if (empty($value)) return null;
         return $this->storageLink('shop/banner', $value, $this->offer_banner_storage_type ?? 'public');
     }
 
     public function getTinCertificateFullUrlAttribute(): string|null|array
     {
         $value = $this->tin_certificate;
+        if (empty($value)) return null;
         return $this->storageLink('shop/documents', $value, $this->tin_certificate_storage_type ?? 'public');
     }
 

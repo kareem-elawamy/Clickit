@@ -123,11 +123,13 @@ if (!function_exists('dynamicAsset')) {
 if (!function_exists('dynamicStorage')) {
     function dynamicStorage(string $path): string
     {
-        if (DOMAIN_POINTED_DIRECTORY == 'public') {
-            $result = str_replace('storage/app/public', 'storage', $path);
-        } else {
-            $result = $path;
+        // ISSUE 1 BUGFIX: Always ensure the URL drops the internal app path
+        $result = str_replace('storage/app/public', 'storage', $path);
+        
+        if (defined('DOMAIN_POINTED_DIRECTORY') && DOMAIN_POINTED_DIRECTORY != 'public') {
+            // Keep any other custom behaviors if needed, though $result is now safe
         }
+
         return asset($result);
     }
 }
@@ -135,8 +137,11 @@ if (!function_exists('dynamicStorage')) {
 if (!function_exists('getValidImage')) {
     function getValidImage($path, $type = null, $source = null): string
     {
-        if (DOMAIN_POINTED_DIRECTORY == 'public') {
-            $path = str_replace('storage/app/public', 'storage', $path);
+        // ISSUE 1 BUGFIX: Always ensure the URL drops the internal app path
+        $path = str_replace('storage/app/public', 'storage', $path);
+        
+        if (defined('DOMAIN_POINTED_DIRECTORY') && DOMAIN_POINTED_DIRECTORY != 'public') {
+            // Keep any other custom behaviors if needed
         }
 
         $givenPath = dynamicStorage($path);

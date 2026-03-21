@@ -21,10 +21,18 @@ class FlashDealController extends Controller
 
     public function getFlashDealProducts(Request $request, $deal_id): JsonResponse
     {
+        $limit  = (int) ($request['limit']  ?? 10);
+        if ($limit < 1) $limit = 10;
+        if ($limit > 50) $limit = 50;
+
         $user = Helpers::getCustomerInformation($request);
         $userId = $user != 'offline' ? $user->id : '0';
         $products = ProductManager::getPriorityWiseFlashDealsProductsQuery(id: $deal_id, userId: $userId)['flashDealProducts'];
-        $products = collect($products)->take(100);
-        return response()->json(Helpers::product_data_formatting($products, true), 200);
+        $products = collect($products)->take($limit);
+        
+        $productFinal = Helpers::product_data_formatting($products, true);
+        $productFinal = Helpers::product_payload_scrub($productFinal);
+
+        return response()->json(array_values($productFinal), 200);
     }
 }

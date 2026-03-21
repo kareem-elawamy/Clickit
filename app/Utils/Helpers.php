@@ -136,8 +136,20 @@ class Helpers
 
     public static function set_data_format($data)
     {
-        $colors = is_array($data['colors']) ? $data['colors'] : json_decode($data['colors']);
-        $query_data = Color::whereIn('code', $colors)->pluck('name', 'code')->toArray();
+        // CRITICAL FIX: In-Memory Static Cache to prevent N+1 queries inside formatting loops
+        static $colorCache = null;
+        if ($colorCache === null) {
+            $colorCache = \App\Models\Color::pluck('name', 'code')->toArray();
+        }
+
+        $colors = is_array($data['colors']) ? $data['colors'] : (json_decode($data['colors']) ?: []);
+        $query_data = [];
+        foreach ($colors as $code) {
+            if (isset($colorCache[$code])) {
+                $query_data[$code] = $colorCache[$code];
+            }
+        }
+
         $color_process = [];
         foreach ($query_data as $key => $color) {
             $color_process[] = array(
@@ -191,6 +203,34 @@ class Helpers
         return $data;
     }
 
+    public static function product_payload_scrub($productFinal)
+    {
+        // STRICT PAYLOAD SCRUBBING: Preserve structural JSON keys to prevent Mobile App crashes
+        $arrayFields = [
+            'attributes', 'choice_options', 'variation', 'colors', 'colors_formatted', 
+            'images_full_url', 'color_images_full_url', 'attachment', 'images', 'color_image'
+        ];
+        $stringFields = [
+            'details', 'meta_description', 'meta_title', 'video_url', 'denied_note'
+        ];
+        
+        foreach ($productFinal as $key => $prod) {
+            if (is_object($prod)) {
+                foreach ($arrayFields as $field) $prod->{$field} = [];
+                foreach ($stringFields as $field) $prod->{$field} = '';
+                if (method_exists($prod, 'setRelation')) {
+                    $prod->setRelation('translations', collect());
+                    $prod->setRelation('reviews', collect());
+                }
+            } elseif (is_array($prod)) {
+                foreach ($arrayFields as $field) $productFinal[$key][$field] = [];
+                foreach ($stringFields as $field) $productFinal[$key][$field] = '';
+                $productFinal[$key]['translations'] = [];
+                $productFinal[$key]['reviews'] = [];
+            }
+        }
+        return $productFinal;
+    }
 
     public static function setDataFormatForJsonData($data): mixed
     {
@@ -198,7 +238,22 @@ class Helpers
         if (isset($data['colors'])) {
             $colors = is_array($data['colors']) ? $data['colors'] : json_decode($data['colors']);
         }
-        $queryData = Color::whereIn('code', $colors)->pluck('name', 'code')->toArray();
+        
+        // CRITICAL FIX: In-Memory Static Cache to prevent N+1 queries inside formatting loops
+        static $colorCache = null;
+        if ($colorCache === null) {
+            $colorCache = \App\Models\Color::pluck('name', 'code')->toArray();
+        }
+
+        $queryData = [];
+        if (is_array($colors)) {
+            foreach ($colors as $code) {
+                if (isset($colorCache[$code])) {
+                    $queryData[$code] = $colorCache[$code];
+                }
+            }
+        }
+        
         $colorProcess = [];
         foreach ($queryData as $key => $color) {
             $colorProcess[] = [

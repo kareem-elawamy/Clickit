@@ -31,7 +31,11 @@ class DealController extends Controller
                 ->pluck('product_id')->toArray();
         }
 
-        $products = Product::with(['rating', 'tags', 'clearanceSale' => function ($query) {
+        $limit  = (int) ($request['limit']  ?? 10);
+        if ($limit < 1) $limit = 10;
+        if ($limit > 50) $limit = 50;
+
+        $products = Product::without(['reviews'])->with(['rating', 'tags', 'clearanceSale' => function ($query) {
                 return $query->active();
             }])
             ->withCount(['reviews', 'wishList' => function ($query) use ($user) {
@@ -39,8 +43,12 @@ class DealController extends Controller
             }])
             ->whereIn('id', $productIDs);
 
-        $products = ProductManager::getPriorityWiseFeatureDealQuery(query: $products, dataLimit: 'all');
-        return response()->json(Helpers::product_data_formatting($products, true), 200);
+        $products = ProductManager::getPriorityWiseFeatureDealQuery(query: $products, dataLimit: $limit);
+        
+        $productFinal = Helpers::product_data_formatting($products, true);
+        $productFinal = Helpers::product_payload_scrub($productFinal);
+        
+        return response()->json(array_values($productFinal), 200);
     }
 
 }

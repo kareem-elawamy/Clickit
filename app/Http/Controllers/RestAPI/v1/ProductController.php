@@ -280,7 +280,9 @@ class ProductController extends Controller
     {
         $user = Helpers::getCustomerInformation($request);
 
-        $product = Product::active()->with(['seller.shop', 'tags', 'digitalVariation', 'clearanceSale' => function ($query) {
+        $product = Product::active()
+            ->without(['reviews']) // ISSUE 2: Prevent global scope from fetching UNLIMITED reviews into memory
+            ->with(['seller.shop', 'tags', 'digitalVariation', 'clearanceSale' => function ($query) {
                 return $query->active();
             }])
             ->withCount(['reviews', 'wishList' => function ($query) use ($user) {
@@ -312,6 +314,10 @@ class ProductController extends Controller
                 $product['restock_requested_list'] = [];
                 $product['is_restock_requested'] = 0;
             }
+
+            // ISSUE 2: Preserve JSON structure for mobile clients without the bloat
+            $product->setRelation('translations', collect());
+            $product->setRelation('reviews', collect());
         }
         return response()->json($product, 200);
     }
@@ -358,6 +364,18 @@ class ProductController extends Controller
         if (Product::find($id)) {
             $products = ProductManager::get_related_products($id, $request);
             $products = Helpers::product_data_formatting($products, true);
+            
+            // ISSUE 2: Preserve JSON structure for mobile clients without the bloat
+            foreach ($products as $key => $prod) {
+                if (is_object($prod) && method_exists($prod, 'setRelation')) {
+                    $prod->setRelation('translations', collect());
+                    $prod->setRelation('reviews', collect());
+                } elseif (is_array($prod)) {
+                    $products[$key]['translations'] = [];
+                    $products[$key]['reviews'] = [];
+                }
+            }
+
             return response()->json($products, 200);
         }
         return response()->json([
@@ -365,9 +383,22 @@ class ProductController extends Controller
         ], 404);
     }
 
-    public function get_product_reviews($id)
+    public function get_product_reviews($id, Request $request)
     {
-        $reviews = Review::with(['customer', 'reply'])->where(['product_id' => $id])->get();
+        $limit = (int) ($request['limit'] ?? 50);
+        if ($limit < 1) $limit = 10;
+        if ($limit > 50) $limit = 50;
+        
+        $offset = (int) ($request['offset'] ?? 1);
+        $skip = ($offset - 1) * $limit;
+        
+        $reviews = Review::with(['customer', 'reply'])
+            ->where(['product_id' => $id])
+            ->latest()
+            ->take($limit)
+            ->skip($skip < 0 ? 0 : $skip)
+            ->get();
+            
         foreach ($reviews as $item) {
             $item['attachment_full_url'] = $item->attachment_full_url;
         }

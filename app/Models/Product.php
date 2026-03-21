@@ -205,10 +205,12 @@ class Product extends Model
 
     public function scopeSellerApproved($query): void
     {
-        $query->whereHas('seller', function ($query) {
-            $query->where(['status' => 'approved']);
-        })->orWhere(function ($query) {
-            $query->where(['added_by' => 'admin', 'status' => 1]);
+        $query->where(function ($q) {
+            $q->whereHas('seller', function ($subQuery) {
+                $subQuery->where(['status' => 'approved']);
+            })->orWhere(function ($subQuery) {
+                $subQuery->where(['added_by' => 'admin', 'status' => 1]);
+            });
         });
     }
 

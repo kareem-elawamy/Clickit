@@ -26,12 +26,18 @@ class CategoryManager
     {
         $user = Helpers::getCustomerInformation($request);
         $id = '"' . $category_id . '"';
-        $products = Product::with(['flashDealProducts.flashDeal', 'rating', 'seller.shop', 'tags', 'clearanceSale' => function ($query) {
+
+        // CRITICAL FIX: Load only what the product grid card needs, but DO NOT REMOVE structural relation keys.
+        // We stripped these earlier thinking they caused the 122MB, but it was the 21,000 row unpaginated fetch.
+        // Restoring them to prevent mobile KeyNotFoundExceptions.
+        $products = Product::without(['reviews'])
+            ->with(['rating', 'flashDealProducts.flashDeal', 'tags', 'seller.shop', 'clearanceSale' => function ($query) {
                 return $query->active();
             }])
             ->withCount(['reviews', 'wishList' => function ($query) use ($user) {
                 $query->where('customer_id', $user != 'offline' ? $user->id : '0');
             }])
+            ->withAvg('reviews', 'rating')
             ->active()
             ->where('category_ids', 'like', "%{$id}%")
             ->when($request->has('search') && !empty($request['search']), function ($query) use ($request) {
@@ -55,33 +61,11 @@ class CategoryManager
                 })->orderByRaw("CASE WHEN name LIKE '%{$searchName}%' THEN 1 ELSE 2 END, LOCATE('{$searchName}', name), name");
             });
 
-        $products = ProductManager::getPriorityWiseCategoryWiseProductsQuery(query: $products, dataLimit: $dataLimit ?? 'all', offset: $request['offset'] ?? 1);
-
-        $currentDate = date('Y-m-d H:i:s');
-        $products?->map(function ($product) use ($currentDate) {
-            $flashDealStatus = 0;
-            $flashDealEndDate = 0;
-            if (count($product->flashDealProducts) > 0) {
-                $flashDeal = null;
-                foreach ($product->flashDealProducts as $flashDealData) {
-                    if ($flashDealData->flashDeal) {
-                        $flashDeal = $flashDealData->flashDeal;
-                    }
-                }
-                if ($flashDeal) {
-                    $startDate = date('Y-m-d H:i:s', strtotime($flashDeal->start_date));
-                    $endDate = date('Y-m-d H:i:s', strtotime($flashDeal->end_date));
-                    $flashDealStatus = $flashDeal->status == 1 && (($currentDate >= $startDate) && ($currentDate <= $endDate)) ? 1 : 0;
-                    $flashDealEndDate = $flashDeal->end_date;
-                }
-            }
-            $product['flash_deal_status'] = $flashDealStatus;
-            $product['flash_deal_end_date'] = $flashDealEndDate;
-            return $product;
-        });
+        $products = ProductManager::getPriorityWiseCategoryWiseProductsQuery(query: $products, dataLimit: $dataLimit ?? 10, offset: $request['offset'] ?? 1);
 
         return $products;
     }
+
 
     public static function get_category_name($id)
     {

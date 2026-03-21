@@ -16,7 +16,7 @@ class DealOfTheDayController extends Controller
         $dealOfTheDay = DealOfTheDay::where(['status' => 1])->whereHas('product')->where('deal_of_the_days.status', 1)->first();
 
         if (isset($dealOfTheDay)) {
-            $product = Product::active()->with(['rating', 'clearanceSale' => function ($query) {
+            $product = Product::active()->without(['reviews'])->with(['rating', 'clearanceSale' => function ($query) {
                     return $query->active();
                 }])
                 ->withCount(['reviews' => function ($query) {
@@ -24,7 +24,7 @@ class DealOfTheDayController extends Controller
                 }])->find($dealOfTheDay->product_id);
 
             if (!isset($product)) {
-                $product = Product::active()->with(['rating', 'clearanceSale' => function ($query) {
+                $product = Product::active()->without(['reviews'])->with(['rating', 'clearanceSale' => function ($query) {
                         return $query->active();
                     }])
                     ->withCount(['reviews' => function ($query) {
@@ -32,7 +32,7 @@ class DealOfTheDayController extends Controller
                     }])->inRandomOrder()->first();
             }
         } else {
-            $product = Product::active()->with(['rating', 'clearanceSale' => function ($query) {
+            $product = Product::active()->without(['reviews'])->with(['rating', 'clearanceSale' => function ($query) {
                     return $query->active();
                 }])
                 ->withCount(['reviews' => function ($query) {
@@ -40,6 +40,13 @@ class DealOfTheDayController extends Controller
                 }])->inRandomOrder()->first();
         }
         $product = $product ? Helpers::product_data_formatting($product) : [];
+
+        if (!empty($product)) {
+            $productFinal = [$product];
+            $scrubbed = Helpers::product_payload_scrub($productFinal);
+            $product = $scrubbed[0];
+        }
+
         return response()->json($product, 200);
 
     }
