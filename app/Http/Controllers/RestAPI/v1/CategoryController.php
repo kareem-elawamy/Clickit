@@ -7,6 +7,8 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Utils\CategoryManager;
 use App\Utils\Helpers;
+use App\Http\Resources\RestAPI\v1\CategoryThinResource;
+use App\Http\Resources\RestAPI\v1\ProductCategoryResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -89,26 +91,7 @@ class CategoryController extends Controller
             ->orderByDesc('priority')
             ->get();
 
-        $fallback = 'http://127.0.0.1:8000/storage/app/public/category/2026-01-16-6969eaf409dd9.jpg';
-
-        $formatted = $childes->map(function ($cat) use ($fallback) {
-            $catData = is_array($cat) ? $cat : (method_exists($cat, 'toArray') ? $cat->toArray() : (array) $cat);
-            
-            $icon = $catData['icon'] ?? '';
-            $isDefault = ($icon === '' || $icon === 'def.png' || $icon === 'null');
-            $iconPath = storage_path('app/public/category/' . $icon);
-            
-            return [
-                'id'        => $catData['id'] ?? 0,
-                'name'      => $catData['name'] ?? '',
-                'slug'      => $catData['slug'] ?? '',
-                'parent_id' => $catData['parent_id'] ?? 0,
-                'position'  => $catData['position'] ?? 0,
-                'icon'      => (!$isDefault && file_exists($iconPath))
-                                ? asset('storage/app/public/category/' . $icon)
-                                : $fallback,
-            ];
-        });
+        $formatted = CategoryThinResource::collection($childes);
 
         return response()->json($formatted, 200);
     }
@@ -126,7 +109,7 @@ class CategoryController extends Controller
         $offset = (int) ($request['offset'] ?? 1);
 
         $products = CategoryManager::products($id, $request, $limit);
-        $productFinal = Helpers::product_data_formatting($products->items(), true);
+        $productFinal = ProductCategoryResource::collection($products->items());
 
         // Fetch sub-categories to display as sub-tabs in the mobile app alongside products
         $subCategories = \App\Models\Category::where('parent_id', $id)
@@ -134,30 +117,14 @@ class CategoryController extends Controller
             ->orderByDesc('priority')
             ->get();
 
-        $fallback = 'http://127.0.0.1:8000/storage/app/public/category/2026-01-16-6969eaf409dd9.jpg';
-        $formattedSub = $subCategories->map(function ($cat) use ($fallback) {
-            $catData = is_array($cat) ? $cat : (method_exists($cat, 'toArray') ? $cat->toArray() : (array) $cat);
-            $icon = $catData['icon'] ?? '';
-            $isDefault = ($icon === '' || $icon === 'def.png' || $icon === 'null');
-            $iconPath = storage_path('app/public/category/' . $icon);
-            return [
-                'id'        => $catData['id'] ?? 0,
-                'name'      => $catData['name'] ?? '',
-                'slug'      => $catData['slug'] ?? '',
-                'parent_id' => $catData['parent_id'] ?? 0,
-                'position'  => $catData['position'] ?? 0,
-                'icon'      => (!$isDefault && file_exists($iconPath))
-                                ? asset('storage/app/public/category/' . $icon)
-                                : $fallback,
-            ];
-        });
+        $formattedSub = CategoryThinResource::collection($subCategories);
 
         return response()->json([
             'total_size' => $products->total(),
             'limit'      => $limit,
             'offset'     => $offset,
             'sub_categories' => $formattedSub,
-            'products'   => array_values($productFinal),
+            'products'   => $productFinal,
         ], 200);
     }
 

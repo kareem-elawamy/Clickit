@@ -15,7 +15,7 @@ class BrandResource extends JsonResource
     {
         $image     = (string) $this->image;
         $isDefault = ($image === '' || $image === 'def.png' || $image === 'null');
-        $fallback  = 'http://127.0.0.1:8000/storage/app/public/category/2026-01-16-6969eaf409dd9.jpg';
+        $fallback  = asset('public/assets/front-end/img/image-place-holder.png');
         $imagePath = storage_path('app/public/brand/' . $image);
         $imageUrl  = (!$isDefault && file_exists($imagePath))
             ? asset('storage/app/public/brand/' . $image)

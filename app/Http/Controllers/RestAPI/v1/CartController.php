@@ -113,24 +113,34 @@ class CartController extends Controller
                     'shipping_cost_saved' => 0,
                 ];
 
-                $data['product']['total_current_stock'] = isset($data['product']['current_stock']) ? $data['product']['current_stock'] : 0;
-                if (isset($data['product']['variation']) && !empty($data['product']['variation'])) {
-                    $variants = json_decode($data['product']['variation']);
-                    foreach ($variants as $var) {
-                        if ($data['variant'] == $var->type) {
-                            $data['product']['total_current_stock'] = $var->qty;
+                $productData = $data['product'];
+                
+                $productData['total_current_stock'] = isset($productData['current_stock']) ? $productData['current_stock'] : 0;
+                if (isset($productData['variation']) && !empty($productData['variation'])) {
+                    $variants = is_string($productData['variation']) ? json_decode($productData['variation']) : $productData['variation'];
+                    if (is_array($variants) || is_object($variants)) {
+                        foreach ($variants as $var) {
+                            if ($data['variant'] == $var->type) {
+                                $productData['total_current_stock'] = $var->qty;
+                            }
                         }
                     }
                 }
 
-                $data['discount'] = getProductPriceByType(product: $data['product'], type: 'discounted_amount', result: 'value', price: $data['price']);
+                $data['discount'] = getProductPriceByType(product: $productData, type: 'discounted_amount', result: 'value', price: $data['price']);
                 
-                if (isset($data['product'])) {
-                    $scrubbedProduct = Helpers::product_payload_scrub([$data['product']]);
-                    $data['product'] = $scrubbedProduct[0] ?? $data['product'];
+                if (isset($productData)) {
+                    $scrubbedProduct = Helpers::product_payload_scrub([$productData]);
+                    $productData = $scrubbedProduct[0] ?? $productData;
                 }
 
-                unset($data['product']['variation']);
+                if (is_array($productData)) {
+                    unset($productData['variation']);
+                } elseif (is_object($productData)) {
+                    unset($productData->variation);
+                }
+
+                $data['product'] = $productData;
                 return $data;
             });
         }
