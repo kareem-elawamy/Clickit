@@ -247,7 +247,7 @@ class HomeController extends Controller
                 $justForYouProducts = $this->product->active()
                     ->where(function ($query) use ($ids) {
                         foreach ($ids as $id) {
-                            $query->orWhere('category_ids', 'like', "%{$id}%");
+                            $query->orWhere('category_ids', 'like', '%"id":"' . $id . '"%');
                         }
                     })->inRandomOrder()->take(8)->get();
             }

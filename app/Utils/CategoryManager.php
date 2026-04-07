@@ -25,7 +25,7 @@ class CategoryManager
     public static function products($category_id, $request = null, $dataLimit = null)
     {
         $user = Helpers::getCustomerInformation($request);
-        $id = '"' . $category_id . '"';
+        $id = '"id":"' . $category_id . '"';
 
         // CRITICAL FIX: Load only what the product grid card needs, but DO NOT REMOVE structural relation keys.
         // We stripped these earlier thinking they caused the 122MB, but it was the 21,000 row unpaginated fetch.

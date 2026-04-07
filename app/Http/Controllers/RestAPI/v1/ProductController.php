@@ -311,22 +311,7 @@ class ProductController extends Controller
             ], 404);
         }
 
-        // ─── Restock status ─────────────────────────────────────────────────────
-        $restockRequestedIds = \Illuminate\Support\Facades\DB::table('restock_products')
-            ->where('product_id', $product->id)
-            ->pluck('id')->toArray();
-
-        $restockRequestedList = [];
-        $isRestockRequested   = 0;
-        if ($user !== 'offline' && count($restockRequestedIds) > 0) {
-            $restockRequestedList = \Illuminate\Support\Facades\DB::table('restock_product_customers')
-                ->where('customer_id', $user->id)
-                ->whereIn('restock_product_id', $restockRequestedIds)
-                ->pluck('variant')->toArray();
-            $isRestockRequested = count($restockRequestedList) > 0 ? 1 : 0;
-        }
-
-        // ─── Related products (lightweight, max 4, using ProductThinResource) ───
+        // ─── Related products (lightweight, max 4) ───
         $relatedCacheKey = 'related_products_thin_api_4_' . $product->id;
         $relatedProducts = \Illuminate\Support\Facades\Cache::remember($relatedCacheKey, now()->addMinutes(30), function () use ($product) {
             return Product::active()
@@ -339,13 +324,11 @@ class ProductController extends Controller
                 ->get();
         });
 
-        $data = (new ProductFullResource($product))->toArray($request);
-        $data['wish_list_count']        = (int) ($product->wish_list_count ?? 0);
-        $data['restock_requested_list'] = $restockRequestedList;
-        $data['is_restock_requested']   = $isRestockRequested;
-        $data['related_products']       = ProductThinResource::collection($relatedProducts);
+        // Attach related products to the model so the resource can access it
+        $product->related_products = $relatedProducts;
 
-        return response()->json($data, 200);
+        // Use the new optimal resource designed for mobile
+        return response()->json(new \App\Http\Resources\RestAPI\v1\ProductDetailsResource($product), 200);
     }
 
     public function getBestSellingProducts(Request $request): JsonResponse
@@ -385,7 +368,7 @@ class ProductController extends Controller
 
             // Step 2: For each category, fetch a LIGHTWEIGHT product list (8 items, essential fields only)
             $homeCategories->each(function ($category) {
-                $catId = '"' . $category->id . '"';
+                $catId = '"id":"' . $category->id . '"';
                 $products = Product::active()
                     ->select([
                         'id', 'name', 'slug', 'category_id', 'brand_id',
