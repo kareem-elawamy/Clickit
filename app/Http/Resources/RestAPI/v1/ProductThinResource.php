@@ -27,7 +27,7 @@ class ProductThinResource extends JsonResource
         }
 
         if (!$thumbnailUrl) {
-            $thumbnailUrl = $isDefault ? asset('public/assets/front-end/img/image-place-holder.png') : asset('storage/app/public/product/thumbnail/' . $thumbnail);
+            $thumbnailUrl = $isDefault ? null : asset('storage/app/public/product/thumbnail/' . $thumbnail);
         }
 
         return [

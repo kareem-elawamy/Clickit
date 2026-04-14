@@ -207,8 +207,6 @@ class Helpers
     {
         if (empty($productFinal)) return [];
         
-        $fallback = 'http://127.0.0.1:8000/storage/app/public/category/2026-01-16-6969eaf409dd9.webp';
-        
         // The ONLY fields allowed to be returned for optimal performance payload
         $keepFields = [
             'id', 'added_by', 'user_id', 'name', 'slug', 'product_type', 'category_ids',
@@ -258,11 +256,10 @@ class Helpers
             // Global Image Fallback & URL formatting
             $thumbnail = $row['thumbnail'] ?? '';
             $isDefault = ($thumbnail === '' || $thumbnail === 'def.png' || $thumbnail === 'null');
-            $thumbPath = storage_path('app/public/product/thumbnail/' . $thumbnail);
             
-            $validImage = (!$isDefault && file_exists($thumbPath)) 
-                        ? asset('storage/app/public/product/thumbnail/' . $thumbnail) 
-                        : $fallback;
+            $validImage = $isDefault 
+                        ? null
+                        : asset('storage/app/public/product/thumbnail/' . $thumbnail);
             
             $row['thumbnail'] = $validImage;
             $row['thumbnail_full_url'] = [

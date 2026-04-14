@@ -27,7 +27,7 @@ class BannerResource extends JsonResource
         }
 
         if (!$photoUrl) {
-            $photoUrl = $isDefault ? asset('public/assets/front-end/img/image-place-holder.png') : asset('storage/app/public/banner/' . $photo);
+            $photoUrl = $isDefault ? null : asset('storage/app/public/banner/' . $photo);
         }
 
         return [

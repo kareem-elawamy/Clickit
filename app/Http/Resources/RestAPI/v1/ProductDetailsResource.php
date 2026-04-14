@@ -18,7 +18,7 @@ class ProductDetailsResource extends JsonResource
         $thumbnail = (string) $this->thumbnail;
         $isDefault = ($thumbnail === '' || $thumbnail === 'def.png' || $thumbnail === 'null');
         $thumbnailUrl = $isDefault
-            ? asset('public/assets/front-end/img/image-place-holder.png')
+            ? null
             : asset('storage/app/public/product/thumbnail/' . $thumbnail);
 
         // ─── Gallery Images ──────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ class ProductDetailsResource extends JsonResource
             foreach ($this->related_products as $related) {
                 $relatedThumb = (string) $related->thumbnail;
                 $relatedThumbUrl = ($relatedThumb === '' || $relatedThumb === 'def.png' || $relatedThumb === 'null')
-                    ? asset('public/assets/front-end/img/image-place-holder.png')
+                    ? null
                     : asset('storage/app/public/product/thumbnail/' . $relatedThumb);
 
                 $relatedProducts[] = [

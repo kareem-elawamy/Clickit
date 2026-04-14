@@ -25,7 +25,7 @@ class ProductFullResource extends JsonResource
         $thumbnail = (string) $this->thumbnail;
         $isDefault = ($thumbnail === '' || $thumbnail === 'def.png' || $thumbnail === 'null');
         $thumbnailUrl = $isDefault
-            ? asset('public/assets/front-end/img/image-place-holder.png')
+            ? null
             : asset('storage/app/public/product/thumbnail/' . $thumbnail);
 
         // ─── Gallery Images ──────────────────────────────────────────────────────

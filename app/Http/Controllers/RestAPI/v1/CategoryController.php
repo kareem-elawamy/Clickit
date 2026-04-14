@@ -45,15 +45,12 @@ class CategoryController extends Controller
                 ->get();
 
             // Transform categories to array and enforce Image Fallback recursively
-            $fallback = 'http://127.0.0.1:8000/storage/app/public/category/2026-01-16-6969eaf409dd9.jpg';
-
-            $formatCategory = function($cat) use (&$formatCategory, $fallback) {
+            $formatCategory = function($cat) use (&$formatCategory) {
                 // Handle both initial Eloquent Models and recursively casted sub-arrays safely.
                 $catData = is_array($cat) ? $cat : (method_exists($cat, 'toArray') ? $cat->toArray() : (array) $cat);
                 
                 $icon = $catData['icon'] ?? '';
                 $isDefault = ($icon === '' || $icon === 'def.png' || $icon === 'null');
-                $iconPath = storage_path('app/public/category/' . $icon);
                 
                 // Return only essential data
                 $formatted = [
@@ -62,9 +59,9 @@ class CategoryController extends Controller
                     'slug'      => $catData['slug'] ?? '',
                     'parent_id' => $catData['parent_id'] ?? 0,
                     'position'  => $catData['position'] ?? 0,
-                    'icon'      => (!$isDefault && file_exists($iconPath))
-                                    ? asset('storage/app/public/category/' . $icon)
-                                    : $fallback,
+                    'icon'      => $isDefault
+                                    ? null
+                                    : asset('storage/app/public/category/' . $icon),
                 ];
 
                 if (!empty($catData['childes'])) {

@@ -27,7 +27,7 @@ class CategoryThinResource extends JsonResource
         }
 
         if (!$iconUrl) {
-            $iconUrl = $isDefault ? asset('public/assets/front-end/img/image-place-holder.png') : asset('storage/app/public/category/' . $icon);
+            $iconUrl = $isDefault ? null : asset('storage/app/public/category/' . $icon);
         }
 
         return [

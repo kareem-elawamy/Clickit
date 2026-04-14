@@ -15,11 +15,10 @@ class BrandResource extends JsonResource
     {
         $image     = (string) $this->image;
         $isDefault = ($image === '' || $image === 'def.png' || $image === 'null');
-        $fallback  = asset('public/assets/front-end/img/image-place-holder.png');
-        $imagePath = storage_path('app/public/brand/' . $image);
-        $imageUrl  = (!$isDefault && file_exists($imagePath))
-            ? asset('storage/app/public/brand/' . $image)
-            : $fallback;
+        
+        $imageUrl  = $isDefault 
+            ? null 
+            : asset('storage/app/public/brand/' . $image);
 
         return [
             'id'    => (int) $this->id,

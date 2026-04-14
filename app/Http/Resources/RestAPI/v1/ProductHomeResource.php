@@ -16,12 +16,10 @@ class ProductHomeResource extends JsonResource
     {
         $thumbnail = (string) $this->thumbnail;
         $isDefault = ($thumbnail === '' || $thumbnail === 'def.png' || $thumbnail === 'null');
-        $fallback  = 'http://127.0.0.1:8000/storage/app/public/category/2026-01-16-6969eaf409dd9.jpg';
-
-        $thumbnailPath = storage_path('app/public/product/thumbnail/' . $thumbnail);
-        $thumbnailUrl  = (!$isDefault && file_exists($thumbnailPath))
-            ? asset('storage/app/public/product/thumbnail/' . $thumbnail)
-            : $fallback;
+        
+        $thumbnailUrl = $isDefault 
+            ? null 
+            : asset('storage/app/public/product/thumbnail/' . $thumbnail);
 
         return [
             'id'            => (int) $this->id,

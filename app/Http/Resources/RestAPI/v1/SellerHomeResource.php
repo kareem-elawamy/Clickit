@@ -14,13 +14,21 @@ class SellerHomeResource extends JsonResource
      */
     public function toArray(\Illuminate\Http\Request $request): array
     {
-        $fallback = 'http://127.0.0.1:8000/storage/app/public/category/2026-01-16-6969eaf409dd9.jpg';
-
-        // Use the model's storageLink-based accessor; it returns a string URL or null/array
         $imageFullUrl = $this->image_full_url;
-        $imageUrl = (is_string($imageFullUrl) && !empty($imageFullUrl))
-            ? $imageFullUrl
-            : $fallback;
+        $imageUrl = null;
+        if (!empty($imageFullUrl)) {
+            if (is_array($imageFullUrl) && isset($imageFullUrl['path'])) {
+                $imageUrl = $imageFullUrl['path'];
+            } elseif (is_string($imageFullUrl)) {
+                $imageUrl = $imageFullUrl;
+            }
+        }
+        
+        if (!$imageUrl) {
+            $image = (string) $this->image;
+            $isDefault = ($image === '' || $image === 'def.png' || $image === 'null');
+            $imageUrl = $isDefault ? null : asset('storage/app/public/shop/' . $image);
+        }
 
         return [
             'id'             => (int) $this->id,

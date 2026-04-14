@@ -30,7 +30,7 @@ class SellerThinResource extends JsonResource
             }
 
             if (!$logoUrl) {
-                $logoUrl = $isDefault ? asset('public/assets/front-end/img/image-place-holder.png') : asset('storage/app/public/shop/' . $image);
+                $logoUrl = $isDefault ? null : asset('storage/app/public/shop/' . $image);
             }
         }
 
